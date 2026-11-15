@@ -1,6 +1,29 @@
 (() => {
-  if (window.__ytmcPatched) return;
-  window.__ytmcPatched = true;
+  const PATCH_GUARD = Symbol.for('ytmc:page-patcher-init');
+  if (window[PATCH_GUARD]) return;
+  try {
+    Object.defineProperty(window, PATCH_GUARD, {
+      value: true,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+  } catch {
+    // Ignore if window is non-extensible
+  }
+
+  const EXPECTED_ORIGIN = 'https://music.youtube.com';
+  const ALLOWED_SB_CATEGORIES = new Set([
+    'music_offtopic',
+    'sponsor',
+    'selfpromo',
+    'interaction',
+    'intro',
+    'outro',
+    'preview',
+    'filler',
+  ]);
+  const ALLOWED_ARTWORK_DOMAINS = ['googleusercontent.com', 'ggpht.com', 'ytimg.com'];
 
   const config = {
     adBlockEnabled: true,
@@ -13,14 +36,14 @@
     secondary: [120, 70, 220],
   };
 
-  let CATEGORY_LABELS = {
+  let CATEGORY_LABELS = Object.assign(Object.create(null), {
     music_offtopic: 'non-music section',
     sponsor: 'sponsor',
     selfpromo: 'self-promotion',
     interaction: 'interaction reminder',
     intro: 'intro',
     outro: 'outro',
-  };
+  });
   let sponsorBlockToastTemplate = 'SponsorBlock: skipped ({category})';
 
   let currentVideoId = null;
@@ -31,8 +54,54 @@
   let wasAdShowing = false;
   let lastReportedState = '';
 
+  function sanitizeRgb(arr) {
+    if (!Array.isArray(arr) || arr.length < 3) return null;
+    const out = [];
+    for (let i = 0; i < 3; i += 1) {
+      const n = Number(arr[i]);
+      if (!Number.isFinite(n)) return null;
+      out.push(Math.min(255, Math.max(0, Math.round(n))));
+    }
+    return out;
+  }
+
+  function isValidSegment(seg) {
+    return Boolean(
+      seg &&
+        typeof seg === 'object' &&
+        !Array.isArray(seg) &&
+        typeof seg.start === 'number' &&
+        typeof seg.end === 'number' &&
+        Number.isFinite(seg.start) &&
+        Number.isFinite(seg.end) &&
+        seg.start >= 0 &&
+        seg.end > seg.start &&
+        seg.end <= 864000
+    );
+  }
+
+  function isValidArtworkUrl(rawUrl) {
+    if (typeof rawUrl !== 'string' || rawUrl.length === 0 || rawUrl.length > 2048) {
+      return false;
+    }
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+        return false;
+      }
+      const host = parsed.hostname.toLowerCase().replace(/\.+$/, '');
+      if (!host) return false;
+      return ALLOWED_ARTWORK_DOMAINS.some(
+        (domain) => host === domain || host.endsWith(`.${domain}`)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   function postToPreload(type, payload = {}) {
-    window.postMessage({ source: 'ytmc-page', type, payload }, '*');
+    if (window.location.origin !== EXPECTED_ORIGIN) return;
+    window.postMessage({ source: 'ytmc-page', type, payload }, EXPECTED_ORIGIN);
   }
 
   // ---- 1. Trusted-Types-safe Frosted Glass Toast ----
@@ -41,7 +110,8 @@
   let toastTextEl = null;
 
   function showToast(text) {
-    if (!document.body || !text) return;
+    if (!document.body || typeof text !== 'string' || !text) return;
+    const safeText = text.slice(0, 240);
     let el = document.getElementById('ytmc-toast');
     if (!el) {
       el = document.createElement('div');
@@ -102,9 +172,9 @@
       toastDotEl.style.boxShadow = `0 0 8px rgba(${p[0]}, ${p[1]}, ${p[2]}, 0.75)`;
     }
     if (toastTextEl) {
-      toastTextEl.textContent = text;
+      toastTextEl.textContent = safeText;
     } else {
-      el.textContent = text;
+      el.textContent = safeText;
     }
 
     el.style.opacity = '1';
@@ -293,13 +363,15 @@
     lastVideoTime = t;
 
     for (const seg of activeSegments) {
+      if (!isValidSegment(seg)) continue;
       const key = `${seg.uuid || seg.start}-${seg.end}`;
       if (skippedInPass.has(key)) continue;
       if (t >= seg.start && t < seg.end - 0.35) {
         skippedInPass.add(key);
         video.currentTime = seg.end;
         postToPreload('sponsorblock-skipped');
-        const label = CATEGORY_LABELS[seg.category] || seg.category;
+        const rawCat = typeof seg.category === 'string' ? seg.category : '';
+        const label = Object.hasOwn(CATEGORY_LABELS, rawCat) ? CATEGORY_LABELS[rawCat] : rawCat;
         showToast(sponsorBlockToastTemplate.replace('{category}', label));
         break;
       }
@@ -323,11 +395,12 @@
 
     let artworkUrl = '';
     if (msMeta && Array.isArray(msMeta.artwork) && msMeta.artwork.length > 0) {
-      artworkUrl = msMeta.artwork[msMeta.artwork.length - 1].src || msMeta.artwork[0].src || '';
+      const candidate = msMeta.artwork[msMeta.artwork.length - 1].src || msMeta.artwork[0].src || '';
+      if (isValidArtworkUrl(candidate)) artworkUrl = candidate;
     }
     if (!artworkUrl) {
       const imgEl = document.querySelector('ytmusic-player-bar img.image');
-      if (imgEl && imgEl.src) artworkUrl = imgEl.src;
+      if (imgEl && imgEl.src && isValidArtworkUrl(imgEl.src)) artworkUrl = imgEl.src;
     }
 
     const player = document.getElementById('movie_player');
@@ -722,11 +795,20 @@
 
   // ---- 8. Listen for commands/settings from preload ----
   window.addEventListener('message', (event) => {
-    if (event.source !== window || !event.data || event.data.source !== 'ytmc-preload') return;
+    if (
+      event.origin !== EXPECTED_ORIGIN ||
+      event.source !== window ||
+      !event.data ||
+      typeof event.data !== 'object' ||
+      Array.isArray(event.data) ||
+      event.data.source !== 'ytmc-preload'
+    ) {
+      return;
+    }
     const { type } = event.data;
     const payload = event.data.payload !== undefined ? event.data.payload : event.data.data;
 
-    if (type === 'config' && payload) {
+    if (type === 'config' && payload && typeof payload === 'object') {
       const prevSb = config.sponsorBlockEnabled;
       if (typeof payload.adBlockEnabled === 'boolean') {
         config.adBlockEnabled = payload.adBlockEnabled;
@@ -747,31 +829,61 @@
         }
       }
       if (typeof payload.sponsorBlockToast === 'string') {
-        sponsorBlockToastTemplate = payload.sponsorBlockToast;
+        sponsorBlockToastTemplate = payload.sponsorBlockToast.slice(0, 120);
       }
-      if (payload.sponsorBlockCategories && typeof payload.sponsorBlockCategories === 'object') {
-        CATEGORY_LABELS = { ...CATEGORY_LABELS, ...payload.sponsorBlockCategories };
+      if (
+        payload.sponsorBlockCategories &&
+        typeof payload.sponsorBlockCategories === 'object' &&
+        !Array.isArray(payload.sponsorBlockCategories)
+      ) {
+        const nextLabels = Object.assign(Object.create(null), CATEGORY_LABELS);
+        for (const catKey of ALLOWED_SB_CATEGORIES) {
+          if (
+            Object.hasOwn(payload.sponsorBlockCategories, catKey) &&
+            typeof payload.sponsorBlockCategories[catKey] === 'string'
+          ) {
+            nextLabels[catKey] = payload.sponsorBlockCategories[catKey].slice(0, 80);
+          }
+        }
+        CATEGORY_LABELS = nextLabels;
       }
       syncAdBlockStyle();
       if (config.sponsorBlockEnabled && currentVideoId && (!prevSb || payload.refetchSponsorBlock)) {
         postToPreload('sponsorblock-request', { videoId: currentVideoId });
       }
-    } else if (type === 'visualizer-theme' && payload) {
-      if (Array.isArray(payload.primary)) visualizerColors.primary = payload.primary;
-      if (Array.isArray(payload.secondary)) visualizerColors.secondary = payload.secondary;
-    } else if (type === 'sponsorblock-segments' && payload) {
+    } else if (type === 'visualizer-theme' && payload && typeof payload === 'object') {
+      const p = sanitizeRgb(payload.primary);
+      const s = sanitizeRgb(payload.secondary);
+      if (p) visualizerColors.primary = p;
+      if (s) visualizerColors.secondary = s;
+    } else if (type === 'sponsorblock-segments' && payload && typeof payload === 'object') {
       if (payload.videoId === currentVideoId) {
-        activeSegments = Array.isArray(payload.segments) ? payload.segments : [];
+        activeSegments = Array.isArray(payload.segments)
+          ? payload.segments.filter(isValidSegment).slice(0, 200)
+          : [];
       }
-    } else if (type === 'player-command' && payload) {
+    } else if (type === 'player-command' && payload && typeof payload === 'object') {
       executePlayerCommand(payload.command);
-    } else if (type === 'player-seek' && payload && Number.isFinite(payload.time)) {
+    } else if (
+      type === 'player-seek' &&
+      payload &&
+      typeof payload === 'object' &&
+      typeof payload.time === 'number' &&
+      Number.isFinite(payload.time) &&
+      payload.time >= 0
+    ) {
       const video = document.querySelector('video');
       if (video) {
-        video.currentTime = Math.max(0, payload.time);
+        video.currentTime = Math.min(864000, payload.time);
         postToPreload('player-time', { currentTime: video.currentTime });
       }
-    } else if (type === 'player-volume' && payload && Number.isFinite(payload.volume)) {
+    } else if (
+      type === 'player-volume' &&
+      payload &&
+      typeof payload === 'object' &&
+      typeof payload.volume === 'number' &&
+      Number.isFinite(payload.volume)
+    ) {
       const clamped = Math.min(1, Math.max(0, payload.volume));
       const player = document.getElementById('movie_player');
       if (player && typeof player.setVolume === 'function') {
@@ -786,7 +898,7 @@
         }
       }
       reportPlayerState();
-    } else if (type === 'toast' && payload && payload.text) {
+    } else if (type === 'toast' && payload && typeof payload === 'object' && typeof payload.text === 'string') {
       showToast(payload.text);
     }
   });

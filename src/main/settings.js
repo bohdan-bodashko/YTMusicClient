@@ -60,18 +60,18 @@ function sanitizeWindowBounds(value, fallback) {
   }
   const width =
     typeof value.width === 'number' && Number.isFinite(value.width) && value.width > 0
-      ? Math.max(420, Math.round(value.width))
+      ? Math.min(16384, Math.max(420, Math.round(value.width)))
       : base.width;
   const height =
     typeof value.height === 'number' && Number.isFinite(value.height) && value.height > 0
-      ? Math.max(320, Math.round(value.height))
+      ? Math.min(16384, Math.max(320, Math.round(value.height)))
       : base.height;
   const x =
-    typeof value.x === 'number' && Number.isFinite(value.x) && value.x > -30000
+    typeof value.x === 'number' && Number.isFinite(value.x) && value.x > -30000 && value.x < 30000
       ? Math.round(value.x)
       : undefined;
   const y =
-    typeof value.y === 'number' && Number.isFinite(value.y) && value.y > -30000
+    typeof value.y === 'number' && Number.isFinite(value.y) && value.y > -30000 && value.y < 30000
       ? Math.round(value.y)
       : undefined;
   const isMaximized =
@@ -85,7 +85,9 @@ function sanitizeStats(value, fallback) {
     return structuredClone(base);
   }
   const toNonNegInt = (n, def) =>
-    typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : def;
+    typeof n === 'number' && Number.isFinite(n) && n >= 0
+      ? Math.min(Number.MAX_SAFE_INTEGER, Math.floor(n))
+      : def;
   return {
     blockedAds: toNonNegInt(value.blockedAds, base.blockedAds),
     skippedSegments: toNonNegInt(value.skippedSegments, base.skippedSegments),
@@ -154,6 +156,10 @@ class SettingsManager {
   _load() {
     try {
       if (fs.existsSync(this.filePath)) {
+        const stat = fs.statSync(this.filePath);
+        if (!stat.isFile() || stat.size > 1024 * 1024) {
+          throw new Error('Settings config file exceeds safe bounds');
+        }
         const raw = fs.readFileSync(this.filePath, 'utf8');
         const parsed = JSON.parse(raw);
         return this._mergeDefaults(DEFAULT_SETTINGS, parsed);
@@ -186,13 +192,13 @@ class SettingsManager {
     try {
       const dir = path.dirname(this.filePath);
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(tmpPath, payload, 'utf8');
+      fs.writeFileSync(tmpPath, payload, { encoding: 'utf8', mode: 0o600 });
       try {
         fs.renameSync(tmpPath, this.filePath);
       } catch (renameErr) {
         // Fallback if Windows AV/indexer momentarily locks the target during rename
         if (renameErr && (renameErr.code === 'EPERM' || renameErr.code === 'EBUSY')) {
-          fs.writeFileSync(this.filePath, payload, 'utf8');
+          fs.writeFileSync(this.filePath, payload, { encoding: 'utf8', mode: 0o600 });
         } else {
           throw renameErr;
         }

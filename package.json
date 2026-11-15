@@ -32,6 +32,15 @@
     "productName": "YouTube Music Client",
     "copyright": "Copyright © 2026 Bohdan Bodashko",
     "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false
+    },
     "directories": {
       "output": "dist"
     },
@@ -68,8 +77,8 @@
       "guid": "c445d989-70b9-50d2-b78d-3c49a1272e89",
       "oneClick": false,
       "perMachine": false,
-      "allowElevation": true,
-      "allowToChangeInstallationDirectory": true,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "runAfterFinish": true,
@@ -93,7 +102,7 @@
     "synced-lyrics"
   ],
   "devDependencies": {
-    "electron": "^35.1.2",
-    "electron-builder": "^26.18.0"
+    "electron": "35.7.5",
+    "electron-builder": "26.18.0"
   }
 }

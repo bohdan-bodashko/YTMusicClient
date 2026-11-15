@@ -51,10 +51,10 @@ A desktop client for **YouTube Music** built with **Electron**, designed as a fa
 
 Download the latest release from [GitHub Releases](https://github.com/bohdan-bodashko/YTMusicClient/releases):
 
-- **`YTMusicClient-1.2.0-setup.exe`** — Windows installer (customizable install directory, Start Menu & Desktop shortcuts, clean uninstaller).
+- **`YTMusicClient-1.2.0-setup.exe`** — Windows installer (per-user install, Start Menu & Desktop shortcuts, clean uninstaller).
 - **`YTMusicClient-1.2.0-portable.exe`** — Standalone portable executable (runs directly without installation).
 
-> Note on Windows Smart App Control / Defender: locally built unsigned `.exe` files may trigger a SmartScreen warning. Click **More info → Run anyway**, sign distributed builds with a Code Signing certificate (`CSC_LINK` / `CSC_KEY_PASSWORD`), or build and launch from source via `scripts/create-shortcut.ps1`.
+> Note on Windows Smart App Control / Defender: locally built unsigned `.exe` files may trigger a SmartScreen warning. Sign distributed builds with an Authenticode Code Signing certificate (`CSC_LINK` / `CSC_KEY_PASSWORD`), or build and run directly from source (and optionally create a local launcher via `scripts/create-shortcut.ps1`).
 
 ### Option 2: Build & Run from Source
 
@@ -69,7 +69,7 @@ Download the latest release from [GitHub Releases](https://github.com/bohdan-bod
 ```powershell
 git clone https://github.com/bohdan-bodashko/YTMusicClient.git
 cd YTMusicClient
-npm.cmd install
+npm.cmd ci
 ```
 
 > Note: If PowerShell script execution policy blocks `.ps1` scripts, use `npm.cmd` and `npx.cmd` instead of `npm` / `npx`.
@@ -128,23 +128,31 @@ YTMusicClient/
 │   ├── main/
 │   │   ├── adblocker.js      # Network-level ad and tracker blocking
 │   │   ├── auth.js           # Auth headers, cache reset, and cookie import
-│   │   ├── index.js          # Main process, window lifecycle, IPC, ThumbarButtons
+│   │   ├── index.js          # Main process, custom protocol, window lifecycle, IPC, ThumbarButtons
 │   │   ├── lyrics.js         # LRCLIB client, LRC parser, and artwork fetcher
 │   │   ├── miniplayer.js     # Tray flyout Mini Player window manager
 │   │   ├── settings.js       # Atomic settings persistence, schema validation, and sync
+│   │   ├── settings-window.js # Isolated Settings & Sign-In window manager
 │   │   ├── shortcuts.js      # Global media shortcuts
 │   │   ├── sponsorblock.js   # SponsorBlock API client
 │   │   └── tray.js           # System tray and context menu
 │   ├── preload/
+│   │   ├── auth.js           # Minimal sandboxed preload for Google auth popups
 │   │   ├── auth-patcher.js   # Aligns navigator / userAgentData in MAIN world
-│   │   ├── enhancements.js   # Adaptive background, synced lyrics, player bar controls
-│   │   ├── index.js          # Main preload bridge, settings modal, hotkeys
-│   │   ├── miniplayer.js     # Isolated preload bridge for the Mini Player
-│   │   ├── offline.js        # Isolated preload bridge for the offline error screen
-│   │   └── page-patcher.js   # Player ad filtering, SponsorBlock, audio visualizer
+│   │   ├── index.js          # Sandboxed main preload bridge, enhancements, offline UI, and hotkeys
+│   │   ├── miniplayer.js     # Isolated sandboxed preload bridge for the Mini Player
+│   │   ├── page-patcher.js   # Player ad filtering, SponsorBlock, audio visualizer
+│   │   └── settings.js       # Isolated sandboxed preload bridge for Settings window
 │   ├── renderer/
+│   │   ├── miniplayer.css    # Tray Mini Player styles
 │   │   ├── miniplayer.html   # Tray Mini Player UI
-│   │   └── offline.html      # Connection error & retry UI
+│   │   ├── miniplayer.js     # Tray Mini Player UI logic
+│   │   ├── offline.css       # Connection error styles
+│   │   ├── offline.html      # Connection error & retry UI
+│   │   ├── offline.js        # Connection error & retry logic
+│   │   ├── settings.css      # Settings & Sign-In styles
+│   │   ├── settings.html     # Settings & Sign-In UI
+│   │   └── settings.js       # Settings & Sign-In UI logic
 │   └── shared/
 │       ├── auth-hosts.js     # Shared Google/YouTube authentication host matching
 │       └── i18n.js           # English / Ukrainian localization dictionary and helpers

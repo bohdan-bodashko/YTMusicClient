@@ -10,16 +10,17 @@ const AUTH_HOSTS = new Set([
 ]);
 
 function matchesDomain(hostname, domain) {
-  if (!hostname || !domain) return false;
-  const host = String(hostname).trim().toLowerCase().replace(/\.+$/, '');
-  const target = String(domain).trim().toLowerCase().replace(/^\.+|\.+$/g, '');
-  if (!host || !target) return false;
+  if (typeof hostname !== 'string' || typeof domain !== 'string') return false;
+  const host = hostname.trim().toLowerCase().replace(/\.+$/, '');
+  const target = domain.trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+  if (!host || !target || host.startsWith('.') || host.includes('..')) return false;
   return host === target || host.endsWith(`.${target}`);
 }
 
 function isAuthHost(hostname) {
-  if (!hostname) return false;
-  const host = String(hostname).trim().toLowerCase().replace(/\.+$/, '');
+  if (typeof hostname !== 'string') return false;
+  const host = hostname.trim().toLowerCase().replace(/\.+$/, '');
+  if (!host || host.startsWith('.') || host.includes('..')) return false;
   return AUTH_HOSTS.has(host);
 }
 

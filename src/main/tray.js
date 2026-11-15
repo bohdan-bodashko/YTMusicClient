@@ -2,8 +2,17 @@ const path = require('path');
 const { app, Tray, Menu, nativeImage, dialog } = require('electron');
 const { resolveLanguage, getTranslations, formatText } = require('../shared/i18n');
 
+function sanitizeMenuText(text, maxLen = 300) {
+  if (typeof text !== 'string') return '';
+  return text
+    .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+}
+
 function escapeMenuLabel(text) {
-  const str = String(text || '');
+  const str = sanitizeMenuText(String(text || ''), 300);
   return process.platform === 'win32' ? str.replace(/&/g, '&&') : str;
 }
 
@@ -88,10 +97,10 @@ class TrayManager {
   }
 
   updatePlayerState(state) {
-    if (!state || typeof state !== 'object') return;
+    if (!state || typeof state !== 'object' || Array.isArray(state)) return;
     const nextIsPlaying = Boolean(state.isPlaying);
-    const nextTitle = typeof state.title === 'string' ? state.title : '';
-    const nextArtist = typeof state.artist === 'string' ? state.artist : '';
+    const nextTitle = sanitizeMenuText(state.title, 200);
+    const nextArtist = sanitizeMenuText(state.artist, 200);
 
     if (
       this.playerState.isPlaying === nextIsPlaying &&

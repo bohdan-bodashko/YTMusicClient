@@ -11,17 +11,39 @@ const AD_HOSTS = [
   'ads.youtube.com',
 ];
 
-const AD_PATH_PATTERNS = [
+const YOUTUBE_AD_PATH_PATTERNS = [
   /\/pagead\//i,
   /\/api\/stats\/ads/i,
   /\/api\/stats\/atr/i,
   /\/ptracking/i,
   /\/get_midroll_info/i,
   /\/youtubei\/v1\/log_event/i,
-  /^https:\/\/play\.google\.com\/log/i,
 ];
 
+function safeDecodePathname(pathname) {
+  let decoded = pathname || '/';
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      const next = decoded.replace(/%[0-9A-Fa-f]{2}/g, (hex) => {
+        try {
+          return decodeURIComponent(hex);
+        } catch {
+          return hex;
+        }
+      });
+      if (next === decoded) break;
+      decoded = next;
+    }
+  }
+  return decoded;
+}
+
 function isAdOrTrackingUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
   let parsed;
   try {
     parsed = new URL(rawUrl);
@@ -29,20 +51,28 @@ function isAdOrTrackingUrl(rawUrl) {
     return false;
   }
 
-  const host = parsed.hostname.toLowerCase();
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return false;
+  }
+
+  const host = parsed.hostname.toLowerCase().replace(/\.+$/, '');
+  if (!host) return false;
+
   for (const adHost of AD_HOSTS) {
     if (matchesDomain(host, adHost)) {
       return true;
     }
   }
 
-  if (
-    matchesDomain(host, 'youtube.com') ||
-    matchesDomain(host, 'youtu.be') ||
-    host === 'play.google.com'
-  ) {
-    for (const pattern of AD_PATH_PATTERNS) {
-      if (pattern.test(rawUrl)) {
+  const decodedPathname = safeDecodePathname(parsed.pathname);
+
+  if (host === 'play.google.com' && /^\/log(?:\/|$)/i.test(decodedPathname)) {
+    return true;
+  }
+
+  if (matchesDomain(host, 'youtube.com') || matchesDomain(host, 'youtu.be')) {
+    for (const pattern of YOUTUBE_AD_PATH_PATTERNS) {
+      if (pattern.test(decodedPathname)) {
         return true;
       }
     }
@@ -52,9 +82,11 @@ function isAdOrTrackingUrl(rawUrl) {
 }
 
 function isAuthOrigin(rawUrl) {
-  if (!rawUrl) return false;
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
   try {
-    return isAuthHost(new URL(rawUrl).hostname);
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:') return false;
+    return isAuthHost(parsed.hostname);
   } catch {
     return false;
   }
@@ -69,20 +101,20 @@ function setupNetworkAdBlocker(targetSession, settings, onBlocked) {
         return;
       }
 
-      if (
-        isAuthOrigin(details.url) ||
-        isAuthOrigin(details.initiator) ||
-        isAuthOrigin(details.referrer)
-      ) {
+      if (isAuthOrigin(details.url)) {
         callback({ cancel: false });
         return;
       }
 
       if (isAdOrTrackingUrl(details.url)) {
-        if (typeof onBlocked === 'function') {
-          onBlocked(details.url);
-        }
         callback({ cancel: true });
+        if (typeof onBlocked === 'function') {
+          try {
+            onBlocked(details.url);
+          } catch {
+            // Ignore callback errors so blocked requests still complete cleanly
+          }
+        }
         return;
       }
 

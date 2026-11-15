@@ -1,6 +1,29 @@
 const path = require('path');
 const { BrowserWindow, screen } = require('electron');
 
+const MINIPLAYER_URL = 'ytmc-app://local/miniplayer.html';
+const DATA_IMAGE_BASE64_REGEX =
+  /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,[A-Za-z0-9+/=]+$/i;
+
+function sanitizeText(value, maxLen = 300) {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+}
+
+function normalizeRgb(arr) {
+  if (!Array.isArray(arr) || arr.length !== 3) return null;
+  const out = [];
+  for (const ch of arr) {
+    if (typeof ch !== 'number' || !Number.isFinite(ch)) return null;
+    out.push(Math.max(0, Math.min(255, Math.round(ch))));
+  }
+  return out;
+}
+
 class MiniPlayerManager {
   constructor({ onVisibilityChange } = {}) {
     this.win = null;
@@ -70,9 +93,11 @@ class MiniPlayerManager {
         icon: path.join(__dirname, '..', '..', 'assets', 'icon.ico'),
         webPreferences: {
           preload: path.join(__dirname, '..', 'preload', 'miniplayer.js'),
+          partition: 'miniplayer',
           contextIsolation: true,
           nodeIntegration: false,
-          sandbox: false,
+          sandbox: true,
+          webviewTag: false,
         },
       });
     } finally {
@@ -81,6 +106,12 @@ class MiniPlayerManager {
 
     this.win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     this.win.webContents.on('will-navigate', (event) => {
+      event.preventDefault();
+    });
+    this.win.webContents.on('will-redirect', (event) => {
+      event.preventDefault();
+    });
+    this.win.webContents.on('will-attach-webview', (event) => {
       event.preventDefault();
     });
 
@@ -123,7 +154,7 @@ class MiniPlayerManager {
       this._emitVisibility(false);
     });
 
-    this.win.loadFile(path.join(__dirname, '..', 'renderer', 'miniplayer.html'));
+    this.win.loadURL(MINIPLAYER_URL).catch(() => {});
 
     return this.win;
   }
@@ -246,7 +277,53 @@ class MiniPlayerManager {
   }
 
   updateState(partial) {
-    this.latestState = { ...this.latestState, ...partial };
+    if (!partial || typeof partial !== 'object' || Array.isArray(partial)) return;
+    const next = { ...this.latestState, artworkUrl: '' };
+
+    if (Object.hasOwn(partial, 'isPlaying')) {
+      next.isPlaying = Boolean(partial.isPlaying);
+    }
+    if (Object.hasOwn(partial, 'title')) {
+      next.title = sanitizeText(partial.title, 300);
+    }
+    if (Object.hasOwn(partial, 'artist')) {
+      next.artist = sanitizeText(partial.artist, 300);
+    }
+    if (Object.hasOwn(partial, 'artworkDataUrl')) {
+      next.artworkDataUrl =
+        typeof partial.artworkDataUrl === 'string' &&
+        DATA_IMAGE_BASE64_REGEX.test(partial.artworkDataUrl)
+          ? partial.artworkDataUrl
+          : '';
+    }
+    if (
+      Object.hasOwn(partial, 'duration') &&
+      typeof partial.duration === 'number' &&
+      Number.isFinite(partial.duration) &&
+      partial.duration >= 0
+    ) {
+      next.duration = Math.min(864000, partial.duration);
+    }
+    if (
+      Object.hasOwn(partial, 'currentTime') &&
+      typeof partial.currentTime === 'number' &&
+      Number.isFinite(partial.currentTime) &&
+      partial.currentTime >= 0
+    ) {
+      next.currentTime = Math.min(864000, partial.currentTime);
+    }
+    if (
+      Object.hasOwn(partial, 'volume') &&
+      typeof partial.volume === 'number' &&
+      Number.isFinite(partial.volume)
+    ) {
+      next.volume = Math.max(0, Math.min(1, partial.volume));
+    }
+    if (Object.hasOwn(partial, 'muted')) {
+      next.muted = Boolean(partial.muted);
+    }
+
+    this.latestState = next;
     if (this.isVisible() && this._isLoaded) {
       this.win.webContents.send('miniplayer:state', {
         ...this.latestState,
@@ -257,20 +334,27 @@ class MiniPlayerManager {
   }
 
   updateLocale(strings) {
-    this.latestStrings = strings || null;
+    this.latestStrings = strings && typeof strings === 'object' && !Array.isArray(strings) ? strings : null;
     this._pushFullSync();
   }
 
   updateTime(currentTime) {
-    this.latestState.currentTime = currentTime;
+    if (typeof currentTime !== 'number' || !Number.isFinite(currentTime) || currentTime < 0) {
+      return;
+    }
+    const clamped = Math.min(864000, currentTime);
+    this.latestState.currentTime = clamped;
     if (this.isVisible() && this._isLoaded) {
-      this.win.webContents.send('miniplayer:time', currentTime);
+      this.win.webContents.send('miniplayer:time', clamped);
     }
   }
 
   updateTheme(theme) {
-    if (theme && Array.isArray(theme.primary) && Array.isArray(theme.secondary)) {
-      this.latestTheme = theme;
+    if (!theme || typeof theme !== 'object' || Array.isArray(theme)) return;
+    const primary = normalizeRgb(theme.primary);
+    const secondary = normalizeRgb(theme.secondary);
+    if (primary && secondary) {
+      this.latestTheme = { primary, secondary };
       if (this.isVisible() && this._isLoaded) {
         this.win.webContents.send('miniplayer:theme', this.latestTheme);
       }

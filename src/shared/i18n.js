@@ -157,6 +157,12 @@ const TRANSLATIONS = {
     authErrors: {
       noCookiesFound: 'Не знайдено жодного коректного cookie у вставленому тексті.',
     },
+    externalLink: {
+      title: 'Відкрити зовнішнє посилання?',
+      message: 'YouTube Music Client намагається відкрити зовнішню адресу у браузері:',
+      openBtn: 'Відкрити',
+      cancelBtn: 'Скасувати',
+    },
   },
   en: {
     app: {
@@ -316,6 +322,12 @@ const TRANSLATIONS = {
     authErrors: {
       noCookiesFound: 'No valid cookies found in the pasted text.',
     },
+    externalLink: {
+      title: 'Open external link?',
+      message: 'YouTube Music Client wants to open an external URL in your browser:',
+      openBtn: 'Open',
+      cancelBtn: 'Cancel',
+    },
   },
 };
 
@@ -331,15 +343,15 @@ function resolveLanguage(settingLang = 'auto', systemLocale = '') {
 }
 
 function getTranslations(lang) {
-  return TRANSLATIONS[lang] || TRANSLATIONS.en;
+  return Object.hasOwn(TRANSLATIONS, lang) ? TRANSLATIONS[lang] : TRANSLATIONS.en;
 }
 
 function formatText(template, vars = {}) {
-  let out = String(template || '');
-  for (const [key, value] of Object.entries(vars || {})) {
-    out = out.replaceAll(`{${key}}`, String(value ?? ''));
-  }
-  return out;
+  const out = String(template || '');
+  const safeVars = vars && typeof vars === 'object' ? vars : {};
+  return out.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) =>
+    Object.hasOwn(safeVars, key) ? String(safeVars[key] ?? '') : match
+  );
 }
 
 module.exports = {

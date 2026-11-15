@@ -1,6 +1,16 @@
 (function applyAuthEnvironment(opts) {
-  if (window.__ytmcAuthPatched) return;
-  window.__ytmcAuthPatched = true;
+  const PATCH_GUARD = Symbol.for('ytmc:auth-env-patched');
+  if (window[PATCH_GUARD]) return;
+  try {
+    Object.defineProperty(window, PATCH_GUARD, {
+      value: true,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+  } catch {
+    // Ignore if window is non-extensible
+  }
 
   const mode = (opts && opts.mode) || 'chrome';
   const major = (opts && opts.chromeMajor) || '134';

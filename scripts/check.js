@@ -7,7 +7,188 @@ const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.resolve(__dirname, '..');
+const SRC_DIR = path.join(ROOT, 'src');
+const PRELOAD_DIR = path.join(SRC_DIR, 'preload');
+const PRELOAD_MAIN_WORLD_SCRIPTS = new Set(['auth-patcher.js', 'page-patcher.js']);
+const FORBIDDEN_SRC_PATTERNS = [
+  { label: 'sandbox: false', regex: /\bsandbox\s*:\s*false\b/ },
+  { label: 'nodeIntegration: true', regex: /\bnodeIntegration\s*:\s*true\b/ },
+  { label: 'webSecurity: false', regex: /\bwebSecurity\s*:\s*false\b/ },
+  { label: 'allowRunningInsecureContent: true', regex: /\ballowRunningInsecureContent\s*:\s*true\b/ },
+  { label: 'rejectUnauthorized: false', regex: /\brejectUnauthorized\s*:\s*false\b/ },
+  { label: 'innerHTML', regex: /\binnerHTML\b/ },
+  { label: 'outerHTML', regex: /\bouterHTML\b/ },
+  { label: 'insertAdjacentHTML', regex: /\binsertAdjacentHTML\b/ },
+  { label: 'document.write', regex: /\bdocument\s*\.\s*write\b/ },
+  { label: 'eval(', regex: /\beval\s*\(/ },
+  { label: 'new Function(', regex: /\bnew\s+Function\s*\(/ },
+];
+const REGEX_PREFIX_KEYWORDS = new Set([
+  'return',
+  'case',
+  'throw',
+  'else',
+  'do',
+  'typeof',
+  'void',
+  'delete',
+  'in',
+  'instanceof',
+  'new',
+  'yield',
+  'await',
+  'of',
+]);
 const errors = [];
+
+function stripJsComments(code) {
+  let out = '';
+  let i = 0;
+  let canStartRegex = true;
+  const templateBraceStack = [];
+  const len = code.length;
+
+  const scanString = (quote) => {
+    out += code[i++];
+    while (i < len) {
+      const ch = code[i++];
+      out += ch;
+      if (ch === '\\' && i < len) {
+        out += code[i++];
+      } else if (ch === quote) {
+        break;
+      }
+    }
+    canStartRegex = false;
+  };
+
+  const scanTemplateChunk = () => {
+    while (i < len) {
+      const ch = code[i++];
+      out += ch;
+      if (ch === '\\' && i < len) {
+        out += code[i++];
+      } else if (ch === '$' && code[i] === '{') {
+        out += code[i++];
+        templateBraceStack.push(1);
+        canStartRegex = true;
+        return;
+      } else if (ch === '`') {
+        canStartRegex = false;
+        return;
+      }
+    }
+  };
+
+  while (i < len) {
+    const ch = code[i];
+    const next = code[i + 1];
+
+    if (ch === '/' && next === '/') {
+      i += 2;
+      while (i < len && code[i] !== '\n') i += 1;
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      i += 2;
+      out += ' ';
+      while (i < len && !(code[i] === '*' && code[i + 1] === '/')) {
+        if (code[i] === '\n') out += '\n';
+        i += 1;
+      }
+      if (i < len) i += 2;
+      continue;
+    }
+
+    if (ch === '\'' || ch === '"') {
+      scanString(ch);
+      continue;
+    }
+
+    if (ch === '`') {
+      out += code[i++];
+      scanTemplateChunk();
+      continue;
+    }
+
+    if (ch === '/' && canStartRegex) {
+      out += code[i++];
+      let inClass = false;
+      while (i < len) {
+        const rc = code[i++];
+        out += rc;
+        if (rc === '\\' && i < len) {
+          out += code[i++];
+        } else if (rc === '[' && !inClass) {
+          inClass = true;
+        } else if (rc === ']' && inClass) {
+          inClass = false;
+        } else if (rc === '/' && !inClass) {
+          break;
+        } else if (rc === '\n') {
+          break;
+        }
+      }
+      canStartRegex = false;
+      continue;
+    }
+
+    if (/[ \t\r\n]/.test(ch)) {
+      out += code[i++];
+      continue;
+    }
+
+    if (ch === '{' && templateBraceStack.length > 0) {
+      templateBraceStack[templateBraceStack.length - 1] += 1;
+      out += code[i++];
+      canStartRegex = true;
+      continue;
+    }
+
+    if (ch === '}' && templateBraceStack.length > 0) {
+      templateBraceStack[templateBraceStack.length - 1] -= 1;
+      out += code[i++];
+      if (templateBraceStack[templateBraceStack.length - 1] === 0) {
+        templateBraceStack.pop();
+        scanTemplateChunk();
+      } else {
+        canStartRegex = false;
+      }
+      continue;
+    }
+
+    if (/[A-Za-z_$]/.test(ch)) {
+      let word = '';
+      while (i < len && /[A-Za-z0-9_$]/.test(code[i])) {
+        word += code[i++];
+      }
+      out += word;
+      canStartRegex = REGEX_PREFIX_KEYWORDS.has(word);
+      continue;
+    }
+
+    if (/[0-9]/.test(ch)) {
+      while (i < len && /[0-9A-Za-z_.]/.test(code[i])) {
+        out += code[i++];
+      }
+      canStartRegex = false;
+      continue;
+    }
+
+    if ((ch === '+' && next === '+') || (ch === '-' && next === '-')) {
+      out += ch + next;
+      i += 2;
+      canStartRegex = false;
+      continue;
+    }
+
+    out += code[i++];
+    canStartRegex = ch !== ')' && ch !== ']';
+  }
+
+  return out;
+}
 
 function walkFiles(dir, extFilter) {
   const results = [];
@@ -31,11 +212,63 @@ function checkJsSyntax(filePath) {
   } catch (err) {
     errors.push(`JS syntax error in ${rel}: ${err.message}`);
   }
+
+  const isUnderSrc = filePath === SRC_DIR || filePath.startsWith(`${SRC_DIR}${path.sep}`);
+  if (!isUnderSrc) return;
+
+  const stripped = stripJsComments(code);
+  for (const { label, regex } of FORBIDDEN_SRC_PATTERNS) {
+    if (regex.test(stripped)) {
+      errors.push(`Forbidden security pattern "${label}" in ${rel}`);
+    }
+  }
+
+  const isUnderPreload = filePath.startsWith(`${PRELOAD_DIR}${path.sep}`);
+  if (isUnderPreload && !PRELOAD_MAIN_WORLD_SCRIPTS.has(path.basename(filePath))) {
+    if (/\brequire\s*\(\s*['"`](?:node:)?(?:fs|path)(?:[\\/][^'"`]*)?['"`]\s*\)/.test(stripped)) {
+      errors.push(`Sandboxed preload must not require fs/path in ${rel}`);
+    }
+    if (/\brequire\s*\(\s*['"`]\.\.?[\\/]/.test(stripped)) {
+      errors.push(`Sandboxed preload must not use relative require() in ${rel}`);
+    }
+  }
+}
+
+function extractHtmlAttributes(tag) {
+  const attrs = Object.create(null);
+  const attrRegex = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+  let match;
+  while ((match = attrRegex.exec(tag)) !== null) {
+    attrs[match[1].toLowerCase()] = match[2] ?? match[3] ?? match[4] ?? '';
+  }
+  return attrs;
+}
+
+function checkHtmlCsp(html, rel) {
+  const withoutComments = html.replace(/<!--[\s\S]*?-->/g, '');
+  const metaRegex = /<meta\b[^>]*>/gi;
+  let cspContent = null;
+  let match;
+  while ((match = metaRegex.exec(withoutComments)) !== null) {
+    const attrs = extractHtmlAttributes(match[0]);
+    if (String(attrs['http-equiv'] || '').toLowerCase() === 'content-security-policy') {
+      cspContent = attrs.content ?? '';
+      break;
+    }
+  }
+  if (cspContent === null || !cspContent.trim()) {
+    errors.push(`Missing Content-Security-Policy <meta> tag in ${rel}`);
+    return;
+  }
+  if (/'unsafe-inline'|'unsafe-eval'|https?:/i.test(cspContent)) {
+    errors.push(`Insecure CSP directive ('unsafe-inline', 'unsafe-eval', or http(s):) in ${rel}`);
+  }
 }
 
 function checkHtmlScripts(filePath) {
   const html = fs.readFileSync(filePath, 'utf8');
   const rel = path.relative(ROOT, filePath);
+  checkHtmlCsp(html, rel);
   const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
   let match;
   let index = 0;
@@ -177,6 +410,26 @@ function checkPackageAndAssets() {
   }
   if (!pkg.build || !pkg.build.appId) {
     errors.push('Missing package.json build.appId');
+  }
+
+  const fuses = pkg.build && pkg.build.electronFuses;
+  const expectedFuses = {
+    runAsNode: false,
+    enableCookieEncryption: true,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: false,
+    enableEmbeddedAsarIntegrityValidation: true,
+    onlyLoadAppFromAsar: true,
+    grantFileProtocolExtraPrivileges: false,
+  };
+  if (!fuses || typeof fuses !== 'object') {
+    errors.push('Missing package.json build.electronFuses configuration');
+  } else {
+    for (const [key, expected] of Object.entries(expectedFuses)) {
+      if (fuses[key] !== expected) {
+        errors.push(`package.json build.electronFuses.${key} must be ${expected}`);
+      }
+    }
   }
 
   checkPng('assets/icon.png', 256, 256);
