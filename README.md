@@ -1,114 +1,114 @@
 # YouTube Music Desktop Client
 
-Десктопний клієнт для **YouTube Music** на базі **Electron**, створений як легка та функціональна обгортка над `music.youtube.com` для Windows з фокусом на чистий інтерфейс, блокування реклами, синхронізовані тексти та системну інтеграцію.
+A desktop client for **YouTube Music** built with **Electron**, designed as a lightweight and feature-rich wrapper around `music.youtube.com` for Windows with a focus on a clean interface, ad blocking, synced lyrics, and OS integration.
 
 ---
 
-## Можливості
+## Features
 
-- **Повноцінний вебінтерфейс `music.youtube.com`** — підтримка всіх плейлистів, рекомендацій, медіатеки та профілю.
-- **AdBlock** — мережеве блокування рекламних і трекінгових запитів, очищення `adPlacements` / `playerAds` / `adSlots` із відповідей плеєра, приховування промо-банерів та резервний автопропуск рекламних роликів.
-- **SponsorBlock** — автоматичний пропуск не-музичних фрагментів (`music_offtopic`), спонсорських вставок, інтро й аутро через API `sponsor.ajay.app`.
-- **Адаптивний фон під обкладинку** — аналіз палітри обкладинки поточного треку та плавне підсвічування інтерфейсу, панелі плеєра й аудіовізуалізатора.
-- **Синхронізовані тексти пісень** — заміна стандартної вкладки «Текст» у плеєрі на синхронізовані LRC-тексти з `lrclib.net` з підсвічуванням активного рядка, автопрокручуванням, переходом по кліку, корекцією затримки (`-0.5с` / `+0.5с`) та можливістю перемкнутися на оригінальний текст YouTube Music.
-- **Аудіовізуалізатор** — спектр частот уздовж верхнього краю панелі плеєра на базі Web Audio API (`captureStream` + `AnalyserNode`) без втручання у вивід звуку.
-- **Системний трей і панель завдань Windows** — згортання в трей при закритті, відображення поточного треку, перемикання налаштувань, автозапуск із Windows та кнопки керування (`Попередній`, `Відтворити / Пауза`, `Наступний`) на мініатюрі вікна на панелі завдань.
-- **Глобальні медіа-клавіші** — підтримка системних клавіш керування медіа навіть у згорнутому стані.
-- **Сумісність входу Google** — коректні заголовки `Sec-CH-UA` і параметри `navigator.userAgentData`, перемикач режиму сумісності (`Chrome` / `Firefox`) та резервний імпорт cookies із браузера.
+- **Full `music.youtube.com` web interface** — supports all playlists, recommendations, library, and account features.
+- **AdBlock** — network-level blocking of ad and tracking requests, stripping `adPlacements` / `playerAds` / `adSlots` from player responses, hiding promo banners, and fallback auto-skip for video ads.
+- **SponsorBlock** — automatic skipping of non-music segments (`music_offtopic`), sponsor segments, intros, and outros via the `sponsor.ajay.app` API.
+- **Adaptive album-art background** — analyzes the color palette of the current track's cover art and smoothly tints the interface, player bar, and audio visualizer.
+- **Synced lyrics** — enhances the standard Lyrics tab with time-synced LRC lyrics from `lrclib.net`, featuring active line highlighting, auto-scroll, click-to-seek, timing offset controls (`-0.5s` / `+0.5s`), and a toggle to switch back to native YouTube Music lyrics.
+- **Audio visualizer** — frequency spectrum bar along the top edge of the player bar powered by the Web Audio API (`captureStream` + `AnalyserNode`) without interfering with audio output.
+- **Windows System Tray & Taskbar** — minimize to tray on close, current track display, quick settings toggles, launch with Windows, and thumbnail toolbar buttons (`Previous`, `Play / Pause`, `Next`) on the Windows taskbar.
+- **Global media keys** — system-wide playback control even when minimized.
+- **Google Sign-In compatibility** — proper `Sec-CH-UA` headers and `navigator.userAgentData` properties, compatibility mode switcher (`Chrome` / `Firefox`), and fallback browser cookie import.
 
 ---
 
-## Гарячі клавіші
+## Keyboard Shortcuts
 
-| Комбінація | Дія |
+| Shortcut | Action |
 | --- | --- |
-| `Ctrl + ,` | Відкрити / закрити вікно налаштувань |
-| `Ctrl + L` | Відкрити / перемкнути вкладку синхронізованого тексту |
-| `MediaPlayPause` / `MediaNextTrack` / `MediaPreviousTrack` / `MediaStop` | Глобальне керування відтворенням |
-| `Ctrl + Alt + Space` / `Ctrl + Alt + Right` / `Ctrl + Alt + Left` | Додаткові глобальні клавіші (вмикаються у налаштуваннях) |
+| `Ctrl + ,` | Open / close Settings window |
+| `Ctrl + L` | Open / toggle synced lyrics tab |
+| `MediaPlayPause` / `MediaNextTrack` / `MediaPreviousTrack` / `MediaStop` | Global playback controls |
+| `Ctrl + Alt + Space` / `Ctrl + Alt + Right` / `Ctrl + Alt + Left` | Optional global shortcuts (enabled in Settings) |
 
 ---
 
-## Встановлення та запуск
+## Installation & Usage
 
-### Вимоги
+### Requirements
 
 - **Windows 10 / 11** (x64)
-- **Node.js** 20+ (перевірено на Node.js 24)
+- **Node.js** 20+ (tested on Node.js 24)
 
-### 1. Клонування та встановлення залежностей
+### 1. Clone and install dependencies
 
 ```powershell
-git clone <URL-репозиторію>
+git clone https://github.com/bohdan-bodashko/YTMusicClient.git
 cd YTMusicClient
 npm.cmd install
 ```
 
-> Примітка: якщо в PowerShell обмежено виконання `.ps1`-скриптів, використовуйте `npm.cmd` замість `npm`.
+> Note: If PowerShell script execution policy restricts `.ps1` scripts, use `npm.cmd` instead of `npm`.
 
-### 2. Запуск у режимі розробки / через ярлик
+### 2. Run in development mode or via desktop shortcut
 
 ```powershell
 npm.cmd start
 ```
 
-Щоб створити ярлик запуску на робочому столі Windows (запускає додаток напряму через `electron.exe` без консольного вікна та з іконкою програми):
+To create a Windows Desktop shortcut (launches the app directly via `electron.exe` without a console window and with the app icon):
 
 ```powershell
 npm.cmd run shortcut:desktop
 ```
 
-### 3. Збірка `.exe`
+### 3. Build `.exe` installer / portable binary
 
 ```powershell
 npm.cmd run build
 ```
 
-Готові артефакти формуються у каталозі `dist/`.
+Built artifacts are generated in the `dist/` directory.
 
-> Примітка щодо Windows Smart App Control / Defender: локально зібрані `.exe`-файли без цифрового підпису можуть блокуватися політикою Windows Application Control. Для розповсюдження збірки слід підписувати сертифікатом Code Signing (`CSC_LINK` та `CSC_KEY_PASSWORD`) або запускати клієнт через ярлик `scripts/create-shortcut.ps1`.
-
----
-
-## Вхід в акаунт Google
-
-Клієнт автоматично маскує параметри вбудованого середовища під стандартний браузер. Якщо для окремого акаунту Google все ж обмежує вбудований вхід:
-
-1. Відкрийте налаштування (`Ctrl + ,`) і перейдіть на вкладку **«Вхід в акаунт Google»**.
-2. Натисніть **«Очистити кеш входу й оновити»** або перемкніть режим на **«Firefox (резервний)»**.
-3. За потреби скористайтеся **імпортом cookies** зі звичайного браузера (Chrome / Edge), вставивши значення заголовка `Cookie:` зі вкладки Network інструментів розробника на `music.youtube.com`.
+> Note on Windows Smart App Control / Defender: locally built unsigned `.exe` files may be blocked by Windows Application Control policies. For distribution, sign builds with a Code Signing certificate (`CSC_LINK` and `CSC_KEY_PASSWORD`), or launch the app via the shortcut created by `scripts/create-shortcut.ps1`.
 
 ---
 
-## Структура проєкту
+## Google Account Sign-In
+
+The client automatically aligns embedded environment properties with a standard browser. If Google still restricts embedded sign-in for a specific account:
+
+1. Open Settings (`Ctrl + ,`) and switch to the **Google Account Sign-In** tab.
+2. Click **Clear sign-in cache & reload** or switch the mode to **Firefox (fallback)**.
+3. If needed, use **cookie import** from your regular browser (Chrome / Edge) by pasting the `Cookie:` header value from DevTools Network tab on `music.youtube.com`.
+
+---
+
+## Project Structure
 
 ```text
 YTMusicClient/
-├── assets/                   # Іконки програми, трею та панелі завдань
+├── assets/                   # App, tray, and taskbar thumbnail icons
 ├── scripts/
-│   ├── create-shortcut.ps1   # Створення Windows-ярлика (.lnk)
-│   └── generate-icons.py     # Генератор PNG та ICO ресурсів
+│   ├── create-shortcut.ps1   # Creates a Windows shortcut (.lnk)
+│   └── generate-icons.py     # Generates PNG and ICO assets
 ├── src/
 │   ├── main/
-│   │   ├── adblocker.js      # Мережеве блокування реклами та трекерів
-│   │   ├── auth.js           # Заголовки авторизації, очищення кешу та імпорт cookies
-│   │   ├── index.js          # Головний процес, вікно, IPC та ThumbarButtons
-│   │   ├── lyrics.js         # Клієнт LRCLIB, парсер LRC та завантаження обкладинок
-│   │   ├── settings.js       # Збереження та синхронізація налаштувань
-│   │   ├── shortcuts.js      # Глобальні медіа-клавіші
-│   │   ├── sponsorblock.js   # Клієнт SponsorBlock API
-│   │   └── tray.js           # Системний трей і контекстне меню
+│   │   ├── adblocker.js      # Network-level ad and tracker blocking
+│   │   ├── auth.js           # Auth headers, cache reset, and cookie import
+│   │   ├── index.js          # Main process, window management, IPC, ThumbarButtons
+│   │   ├── lyrics.js         # LRCLIB client, LRC parser, and artwork fetcher
+│   │   ├── settings.js       # Settings persistence and sync
+│   │   ├── shortcuts.js      # Global media shortcuts
+│   │   ├── sponsorblock.js   # SponsorBlock API client
+│   │   └── tray.js           # System tray and context menu
 │   └── preload/
-│       ├── auth-patcher.js   # Вирівнювання navigator / userAgentData у MAIN world
-│       ├── enhancements.js   # Адаптивний фон, вкладка текстів і кнопки панелі плеєра
-│       ├── index.js          # Ізольований міст preload, модалка налаштувань і гарячі клавіші
-│       └── page-patcher.js   # Фільтрація реклами в плеєрі, SponsorBlock та аудіовізуалізатор
+│       ├── auth-patcher.js   # Aligns navigator / userAgentData in MAIN world
+│       ├── enhancements.js   # Adaptive background, lyrics tab, player bar controls
+│       ├── index.js          # Isolated preload bridge, settings modal, shortcuts
+│       └── page-patcher.js   # Player ad filtering, SponsorBlock, audio visualizer
 ├── package.json
 └── README.md
 ```
 
 ---
 
-## Ліцензія
+## License
 
 [MIT](LICENSE)
