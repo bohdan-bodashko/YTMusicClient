@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:;" />
+  <title>Connection Error — YouTube Music</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      font-family: "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
+      color: #f4f4f6;
+      background:
+        radial-gradient(circle at 22% 24%, rgba(255, 45, 85, 0.16) 0%, transparent 52%),
+        radial-gradient(circle at 78% 76%, rgba(90, 60, 200, 0.14) 0%, transparent 54%),
+        #09090b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 450px;
+      padding: 32px 28px 26px;
+      border-radius: 18px;
+      background: rgba(20, 20, 25, 0.86);
+      backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      box-shadow:
+        0 24px 60px rgba(0, 0, 0, 0.65),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      text-align: center;
+      animation: fadeUp 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(10px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .icon-ring {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 18px;
+      border-radius: 50%;
+      background: rgba(255, 45, 85, 0.12);
+      border: 1px solid rgba(255, 45, 85, 0.3);
+      color: #ff375f;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 28px rgba(255, 45, 85, 0.18);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+      color: #ffffff;
+    }
+
+    .subtitle {
+      margin: 0 0 20px;
+      font-size: 13.5px;
+      line-height: 1.55;
+      color: rgba(255, 255, 255, 0.68);
+    }
+
+    .details {
+      display: none;
+      text-align: left;
+      margin-bottom: 20px;
+      padding: 11px 13px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12px;
+      line-height: 1.5;
+      color: rgba(255, 255, 255, 0.7);
+      user-select: text;
+      word-break: break-word;
+    }
+
+    .details.visible {
+      display: block;
+    }
+
+    .detail-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .detail-row + .detail-row {
+      margin-top: 4px;
+    }
+
+    .detail-label {
+      color: rgba(255, 255, 255, 0.45);
+      font-weight: 500;
+    }
+
+    .detail-val {
+      color: rgba(255, 255, 255, 0.88);
+      font-family: Consolas, monospace;
+      font-size: 11.5px;
+    }
+
+    .retry-btn {
+      width: 100%;
+      height: 42px;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #ff1e4d 0%, #e60039 100%);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 8px 22px rgba(255, 0, 51, 0.32);
+      transition: transform 0.12s ease, filter 0.15s ease, opacity 0.15s ease;
+    }
+
+    .retry-btn:hover {
+      filter: brightness(1.08);
+    }
+
+    .retry-btn:active {
+      transform: scale(0.985);
+    }
+
+    .retry-btn:focus-visible {
+      outline: 2px solid #ffffff;
+      outline-offset: 2px;
+    }
+
+    .retry-btn:disabled {
+      opacity: 0.72;
+      cursor: default;
+    }
+
+    .hint {
+      margin-top: 14px;
+      font-size: 11.5px;
+      color: rgba(255, 255, 255, 0.42);
+    }
+
+    .spin {
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="icon-ring" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M23.64 7c-.45-.34-4.93-4-11.64-4-1.5 0-2.89.19-4.15.48L18.18 13.8 23.64 7zm-6.6 8.22L3.27 1.44 2 2.72l2.05 2.06C1.91 5.76.59 6.82.36 7l11.63 14.49.01.01.01-.01 3.9-4.86 3.32 3.32 1.27-1.27-3.46-3.46z"/>
+      </svg>
+    </div>
+
+    <h1 id="heading">Unable to load YouTube Music</h1>
+    <p id="subtitle" class="subtitle">
+      Please check your internet connection, VPN, or proxy settings and try again.
+    </p>
+
+    <div id="detailsBox" class="details">
+      <div id="errorRow" class="detail-row" style="display:none">
+        <span id="errorCodeLabel" class="detail-label">Error code:</span>
+        <span id="errorValue" class="detail-val"></span>
+      </div>
+      <div id="urlRow" class="detail-row" style="display:none">
+        <span id="urlLabel" class="detail-label">URL:</span>
+        <span id="urlValue" class="detail-val"></span>
+      </div>
+    </div>
+
+    <button id="retryBtn" class="retry-btn" type="button">
+      <svg id="retryIcon" width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+      </svg>
+      <span id="retryLabel">Retry Connection</span>
+    </button>
+
+    <div id="hint" class="hint">Tip: press Enter or R to retry quickly.</div>
+  </main>
+
+  <script>
+    const heading = document.getElementById('heading');
+    const subtitle = document.getElementById('subtitle');
+    const detailsBox = document.getElementById('detailsBox');
+    const errorRow = document.getElementById('errorRow');
+    const errorCodeLabel = document.getElementById('errorCodeLabel');
+    const errorValue = document.getElementById('errorValue');
+    const urlRow = document.getElementById('urlRow');
+    const urlLabel = document.getElementById('urlLabel');
+    const urlValue = document.getElementById('urlValue');
+    const retryBtn = document.getElementById('retryBtn');
+    const retryIcon = document.getElementById('retryIcon');
+    const retryLabel = document.getElementById('retryLabel');
+    const hint = document.getElementById('hint');
+
+    let retryingText = 'Connecting...';
+    let retryText = 'Retry Connection';
+    let isRetrying = false;
+
+    function applyOfflineInfo(info) {
+      if (!info) return;
+      if (info.lang) {
+        document.documentElement.lang = info.lang;
+      }
+      const s = info.strings || {};
+      if (s.pageTitle) document.title = s.pageTitle;
+      if (s.heading) heading.textContent = s.heading;
+      if (s.subtitle) subtitle.textContent = s.subtitle;
+      if (s.errorCodeLabel) errorCodeLabel.textContent = s.errorCodeLabel;
+      if (s.urlLabel) urlLabel.textContent = s.urlLabel;
+      if (s.retryBtn) {
+        retryText = s.retryBtn;
+        if (!isRetrying) retryLabel.textContent = retryText;
+      }
+      if (s.retryingBtn) {
+        retryingText = s.retryingBtn;
+        if (isRetrying) retryLabel.textContent = retryingText;
+      }
+      if (s.hint) hint.textContent = s.hint;
+
+      const hasErr = info.errorDescription || info.errorCode !== '';
+      const errText = [info.errorDescription, info.errorCode !== '' ? `(${info.errorCode})` : '']
+        .filter(Boolean)
+        .join(' ');
+      if (hasErr && errText) {
+        errorValue.textContent = errText;
+        errorRow.style.display = 'flex';
+      } else {
+        errorRow.style.display = 'none';
+      }
+
+      if (info.validatedURL) {
+        urlValue.textContent = info.validatedURL;
+        urlRow.style.display = 'flex';
+      } else {
+        urlRow.style.display = 'none';
+      }
+
+      detailsBox.classList.toggle('visible', Boolean((hasErr && errText) || info.validatedURL));
+    }
+
+    function triggerRetry() {
+      if (isRetrying) return;
+      isRetrying = true;
+      retryBtn.disabled = true;
+      retryIcon.classList.add('spin');
+      retryLabel.textContent = retryingText;
+      if (window.offlineAPI) {
+        window.offlineAPI.retryLoad();
+      }
+      setTimeout(() => {
+        isRetrying = false;
+        retryBtn.disabled = false;
+        retryIcon.classList.remove('spin');
+        retryLabel.textContent = retryText;
+      }, 4500);
+    }
+
+    retryBtn.addEventListener('click', triggerRetry);
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        triggerRetry();
+      }
+    });
+
+    if (window.offlineAPI) {
+      window.offlineAPI.onInfo(applyOfflineInfo);
+      window.offlineAPI.getInfo().then(applyOfflineInfo).catch(() => {});
+    }
+  </script>
+</body>
+</html>

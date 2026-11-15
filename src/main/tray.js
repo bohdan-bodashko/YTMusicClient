@@ -2,10 +2,16 @@ const path = require('path');
 const { app, Tray, Menu, nativeImage, dialog } = require('electron');
 const { resolveLanguage, getTranslations, formatText } = require('../shared/i18n');
 
+function escapeMenuLabel(text) {
+  const str = String(text || '');
+  return process.platform === 'win32' ? str.replace(/&/g, '&&') : str;
+}
+
 class TrayManager {
   constructor({
     settings,
     onToggleWindow,
+    onOpenMainWindow,
     onToggleMiniPlayer,
     onPlayerCommand,
     onToggleLyrics,
@@ -13,9 +19,11 @@ class TrayManager {
     onClearGoogleAuth,
     onReload,
     onQuit,
+    getDialogParent,
   }) {
     this.settings = settings;
     this.onToggleWindow = onToggleWindow;
+    this.onOpenMainWindow = onOpenMainWindow;
     this.onToggleMiniPlayer = onToggleMiniPlayer;
     this.onPlayerCommand = onPlayerCommand;
     this.onToggleLyrics = onToggleLyrics;
@@ -23,6 +31,7 @@ class TrayManager {
     this.onClearGoogleAuth = onClearGoogleAuth;
     this.onReload = onReload;
     this.onQuit = onQuit;
+    this.getDialogParent = typeof getDialogParent === 'function' ? getDialogParent : () => null;
     this.tray = null;
     this.playerState = {
       isPlaying: false,
@@ -36,26 +45,72 @@ class TrayManager {
     return getTranslations(lang);
   }
 
+  getBoundsSafe() {
+    if (!this.tray) return null;
+    try {
+      return this.tray.getBounds();
+    } catch {
+      return null;
+    }
+  }
+
+  _loadTrayIcon() {
+    const assetsDir = path.join(__dirname, '..', '..', 'assets');
+    const candidates = ['tray-icon.png', 'icon.png', 'icon.ico'];
+    for (const file of candidates) {
+      const img = nativeImage.createFromPath(path.join(assetsDir, file));
+      if (!img.isEmpty()) {
+        return img;
+      }
+    }
+    return nativeImage.createEmpty();
+  }
+
   init() {
-    const iconPath = path.join(__dirname, '..', '..', 'assets', 'tray-icon.png');
-    const icon = nativeImage.createFromPath(iconPath);
+    const icon = this._loadTrayIcon();
     this.tray = new Tray(icon);
     this.tray.setToolTip('YouTube Music');
     this.tray.on('click', () => {
       if (this.onToggleMiniPlayer) {
-        this.onToggleMiniPlayer(this.tray.getBounds());
-      } else {
+        this.onToggleMiniPlayer(this.getBoundsSafe());
+      } else if (this.onToggleWindow) {
         this.onToggleWindow();
+      }
+    });
+    this.tray.on('double-click', () => {
+      if (this.onOpenMainWindow) {
+        this.onOpenMainWindow();
+      } else if (this.onToggleWindow) {
+        this.onToggleWindow(true);
       }
     });
     this.rebuildMenu();
   }
 
   updatePlayerState(state) {
-    this.playerState = { ...this.playerState, ...state };
+    if (!state || typeof state !== 'object') return;
+    const nextIsPlaying = Boolean(state.isPlaying);
+    const nextTitle = typeof state.title === 'string' ? state.title : '';
+    const nextArtist = typeof state.artist === 'string' ? state.artist : '';
+
+    if (
+      this.playerState.isPlaying === nextIsPlaying &&
+      this.playerState.title === nextTitle &&
+      this.playerState.artist === nextArtist
+    ) {
+      return;
+    }
+
+    this.playerState = {
+      isPlaying: nextIsPlaying,
+      title: nextTitle,
+      artist: nextArtist,
+    };
+
     if (this.tray) {
-      const trackLabel = this.playerState.title
-        ? `${this.playerState.title}${this.playerState.artist ? ' — ' + this.playerState.artist : ''}`
+      const statusIcon = nextIsPlaying ? '▶' : '⏸';
+      const trackLabel = nextTitle
+        ? `${statusIcon} ${nextTitle}${nextArtist ? ' — ' + nextArtist : ''}`
         : 'YouTube Music';
       this.tray.setToolTip(trackLabel.slice(0, 127));
       this.rebuildMenu();
@@ -71,60 +126,60 @@ class TrayManager {
       ? `♪ ${this.playerState.title}${this.playerState.artist ? ' — ' + this.playerState.artist : ''}`
       : `♪ ${tr.nothingPlaying}`;
 
-    const truncatedTrack = trackText.length > 48 ? trackText.slice(0, 45) + '...' : trackText;
+    const truncatedTrack = trackText.length > 48 ? `${trackText.slice(0, 45)}...` : trackText;
     const currentLangSetting = cfg.language || 'auto';
 
     const template = [
       {
-        label: truncatedTrack,
+        label: escapeMenuLabel(truncatedTrack),
         enabled: false,
       },
       {
-        label: tr.openHideMain,
-        click: () => this.onToggleWindow(),
+        label: escapeMenuLabel(tr.openHideMain),
+        click: () => this.onToggleWindow && this.onToggleWindow(),
       },
       {
-        label: tr.miniPlayer,
-        click: () => this.onToggleMiniPlayer && this.onToggleMiniPlayer(this.tray.getBounds()),
+        label: escapeMenuLabel(tr.miniPlayer),
+        click: () => this.onToggleMiniPlayer && this.onToggleMiniPlayer(this.getBoundsSafe()),
       },
       { type: 'separator' },
       {
-        label: this.playerState.isPlaying ? `⏸ ${tr.pause}` : `▶ ${tr.play}`,
-        click: () => this.onPlayerCommand('toggle'),
+        label: escapeMenuLabel(this.playerState.isPlaying ? `⏸ ${tr.pause}` : `▶ ${tr.play}`),
+        click: () => this.onPlayerCommand && this.onPlayerCommand('toggle'),
       },
       {
-        label: `⏭ ${tr.next}`,
-        click: () => this.onPlayerCommand('next'),
+        label: escapeMenuLabel(`⏭ ${tr.next}`),
+        click: () => this.onPlayerCommand && this.onPlayerCommand('next'),
       },
       {
-        label: `⏮ ${tr.prev}`,
-        click: () => this.onPlayerCommand('previous'),
+        label: escapeMenuLabel(`⏮ ${tr.prev}`),
+        click: () => this.onPlayerCommand && this.onPlayerCommand('previous'),
       },
       {
-        label: `📝 ${tr.toggleLyrics}`,
+        label: escapeMenuLabel(`📝 ${tr.toggleLyrics}`),
         click: () => this.onToggleLyrics && this.onToggleLyrics(),
       },
       { type: 'separator' },
       {
-        label: tr.settings,
+        label: escapeMenuLabel(tr.settings),
         submenu: [
           {
-            label: tr.language,
+            label: escapeMenuLabel(tr.language),
             submenu: [
               {
-                label: tr.langAuto,
+                label: escapeMenuLabel(tr.langAuto),
                 type: 'radio',
                 checked: currentLangSetting === 'auto',
                 click: () => this.settings.set('language', 'auto'),
               },
               {
-                label: tr.langUk,
+                label: escapeMenuLabel(tr.langUk),
                 type: 'radio',
                 checked: currentLangSetting === 'uk',
                 click: () => this.settings.set('language', 'uk'),
               },
               {
-                label: tr.langEn,
+                label: escapeMenuLabel(tr.langEn),
                 type: 'radio',
                 checked: currentLangSetting === 'en',
                 click: () => this.settings.set('language', 'en'),
@@ -133,105 +188,108 @@ class TrayManager {
           },
           { type: 'separator' },
           {
-            label: tr.adBlock,
+            label: escapeMenuLabel(tr.adBlock),
             type: 'checkbox',
-            checked: cfg.adBlockEnabled,
+            checked: Boolean(cfg.adBlockEnabled),
             click: (item) => this.settings.set('adBlockEnabled', item.checked),
           },
           {
-            label: tr.sponsorBlock,
+            label: escapeMenuLabel(tr.sponsorBlock),
             type: 'checkbox',
-            checked: cfg.sponsorBlockEnabled,
+            checked: Boolean(cfg.sponsorBlockEnabled),
             click: (item) => this.settings.set('sponsorBlockEnabled', item.checked),
           },
           { type: 'separator' },
           {
-            label: tr.ambientTheme,
+            label: escapeMenuLabel(tr.ambientTheme),
             type: 'checkbox',
-            checked: cfg.ambientThemeEnabled,
+            checked: Boolean(cfg.ambientThemeEnabled),
             click: (item) => this.settings.set('ambientThemeEnabled', item.checked),
           },
           {
-            label: tr.visualizer,
+            label: escapeMenuLabel(tr.visualizer),
             type: 'checkbox',
-            checked: cfg.visualizerEnabled,
+            checked: Boolean(cfg.visualizerEnabled),
             click: (item) => this.settings.set('visualizerEnabled', item.checked),
           },
           {
-            label: tr.lyrics,
+            label: escapeMenuLabel(tr.lyrics),
             type: 'checkbox',
-            checked: cfg.lyricsEnabled,
+            checked: Boolean(cfg.lyricsEnabled),
             click: (item) => this.settings.set('lyricsEnabled', item.checked),
           },
           { type: 'separator' },
           {
-            label: tr.globalMediaKeys,
+            label: escapeMenuLabel(tr.globalMediaKeys),
             type: 'checkbox',
-            checked: cfg.globalMediaKeys,
+            checked: Boolean(cfg.globalMediaKeys),
             click: (item) => this.settings.set('globalMediaKeys', item.checked),
           },
           {
-            label: tr.extraHotkeys,
+            label: escapeMenuLabel(tr.extraHotkeys),
             type: 'checkbox',
-            checked: cfg.extraHotkeys,
+            checked: Boolean(cfg.extraHotkeys),
             click: (item) => this.settings.set('extraHotkeys', item.checked),
           },
           { type: 'separator' },
           {
-            label: tr.minimizeToTray,
+            label: escapeMenuLabel(tr.minimizeToTray),
             type: 'checkbox',
-            checked: cfg.minimizeToTray,
+            checked: Boolean(cfg.minimizeToTray),
             click: (item) => this.settings.set('minimizeToTray', item.checked),
           },
           {
-            label: tr.alwaysOnTop,
+            label: escapeMenuLabel(tr.alwaysOnTop),
             type: 'checkbox',
-            checked: cfg.alwaysOnTop,
+            checked: Boolean(cfg.alwaysOnTop),
             click: (item) => this.settings.set('alwaysOnTop', item.checked),
           },
           {
-            label: tr.autoLaunch,
+            label: escapeMenuLabel(tr.autoLaunch),
             type: 'checkbox',
-            checked: cfg.autoLaunch,
+            checked: Boolean(cfg.autoLaunch),
             click: (item) => this.settings.set('autoLaunch', item.checked),
           },
         ],
       },
       {
-        label: tr.googleAccount,
+        label: escapeMenuLabel(tr.googleAccount),
         submenu: [
           {
-            label: tr.authModeChrome,
+            label: escapeMenuLabel(tr.authModeChrome),
             type: 'radio',
             checked: (cfg.authUserAgentMode || 'chrome') === 'chrome',
             click: () => this.settings.set('authUserAgentMode', 'chrome'),
           },
           {
-            label: tr.authModeFirefox,
+            label: escapeMenuLabel(tr.authModeFirefox),
             type: 'radio',
             checked: cfg.authUserAgentMode === 'firefox',
             click: () => this.settings.set('authUserAgentMode', 'firefox'),
           },
           { type: 'separator' },
           {
-            label: tr.clearAuthCache,
+            label: escapeMenuLabel(tr.clearAuthCache),
             click: () => this.onClearGoogleAuth && this.onClearGoogleAuth(),
           },
           {
-            label: tr.importCookiesMenu,
+            label: escapeMenuLabel(tr.importCookiesMenu),
             click: () => this.onOpenAuthSettings && this.onOpenAuthSettings(),
           },
         ],
       },
       {
-        label: formatText(tr.statsLabel, {
-          ads: cfg.stats?.blockedAds || 0,
-          segments: cfg.stats?.skippedSegments || 0,
-        }),
+        label: escapeMenuLabel(
+          formatText(tr.statsLabel, {
+            ads: cfg.stats?.blockedAds || 0,
+            segments: cfg.stats?.skippedSegments || 0,
+          })
+        ),
         click: () => {
           const current = this.settings.getAll();
           const dialogTr = this._t().tray;
-          dialog.showMessageBox({
+          const parent = this.getDialogParent();
+          const options = {
             type: 'info',
             title: dialogTr.statsDialogTitle,
             message: dialogTr.statsDialogMessage,
@@ -240,17 +298,21 @@ class TrayManager {
               segments: current.stats?.skippedSegments || 0,
             }),
             buttons: ['OK'],
-          });
+          };
+          const promise = parent
+            ? dialog.showMessageBox(parent, options)
+            : dialog.showMessageBox(options);
+          promise.catch(() => {});
         },
       },
       { type: 'separator' },
       {
-        label: tr.reload,
-        click: () => this.onReload(),
+        label: escapeMenuLabel(tr.reload),
+        click: () => this.onReload && this.onReload(),
       },
       {
-        label: tr.quit,
-        click: () => this.onQuit(),
+        label: escapeMenuLabel(tr.quit),
+        click: () => this.onQuit && this.onQuit(),
       },
     ];
 
@@ -265,4 +327,4 @@ class TrayManager {
   }
 }
 
-module.exports = { TrayManager };
+module.exports = { TrayManager, escapeMenuLabel };

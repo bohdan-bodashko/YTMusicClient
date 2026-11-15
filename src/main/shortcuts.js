@@ -1,4 +1,4 @@
-const { globalShortcut } = require('electron');
+const { app, globalShortcut } = require('electron');
 
 const MEDIA_SHORTCUTS = [
   ['MediaPlayPause', 'toggle'],
@@ -17,10 +17,12 @@ class ShortcutManager {
   constructor(sendPlayerCommand) {
     this.sendPlayerCommand = sendPlayerCommand;
     this.registeredAccelerators = [];
+    this.failedAccelerators = [];
   }
 
   apply(settings) {
     this.unregisterAll();
+    if (!app.isReady()) return this.getStatus();
 
     if (settings.get('globalMediaKeys')) {
       for (const [accelerator, command] of MEDIA_SHORTCUTS) {
@@ -33,6 +35,8 @@ class ShortcutManager {
         this._register(accelerator, command);
       }
     }
+
+    return this.getStatus();
   }
 
   _register(accelerator, command) {
@@ -43,11 +47,20 @@ class ShortcutManager {
       if (ok) {
         this.registeredAccelerators.push(accelerator);
       } else {
+        this.failedAccelerators.push(accelerator);
         console.warn(`[Shortcuts] Could not register: ${accelerator}`);
       }
     } catch (err) {
+      this.failedAccelerators.push(accelerator);
       console.error(`[Shortcuts] Error registering ${accelerator}:`, err);
     }
+  }
+
+  getStatus() {
+    return {
+      registered: [...this.registeredAccelerators],
+      failed: [...this.failedAccelerators],
+    };
   }
 
   unregisterAll() {
@@ -59,6 +72,7 @@ class ShortcutManager {
       }
     }
     this.registeredAccelerators = [];
+    this.failedAccelerators = [];
   }
 }
 

@@ -28,16 +28,20 @@
   let skippedInPass = new Set();
   let lastVideoTime = 0;
   let savedMuteBeforeAd = null;
+  let wasAdShowing = false;
   let lastReportedState = '';
 
   function postToPreload(type, payload = {}) {
     window.postMessage({ source: 'ytmc-page', type, payload }, '*');
   }
 
-  // ---- 1. Trusted-Types-safe Toast ----
+  // ---- 1. Trusted-Types-safe Frosted Glass Toast ----
   let toastTimer = null;
+  let toastDotEl = null;
+  let toastTextEl = null;
+
   function showToast(text) {
-    if (!document.body) return;
+    if (!document.body || !text) return;
     let el = document.getElementById('ytmc-toast');
     if (!el) {
       el = document.createElement('div');
@@ -45,50 +49,94 @@
       Object.assign(el.style, {
         position: 'fixed',
         right: '20px',
-        bottom: '92px',
+        bottom: '88px',
         zIndex: '999999',
-        background: 'rgba(24, 24, 24, 0.94)',
-        color: '#f1f1f1',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '9px',
+        background: 'rgba(18, 18, 24, 0.90)',
+        backdropFilter: 'blur(14px)',
+        color: '#f4f4f6',
         border: '1px solid rgba(255, 255, 255, 0.14)',
-        borderRadius: '10px',
+        borderRadius: '11px',
         padding: '10px 14px',
-        fontFamily: 'Roboto, Segoe UI, sans-serif',
+        fontFamily: '"Segoe UI Variable", "Segoe UI", Roboto, sans-serif',
         fontSize: '13px',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+        fontWeight: '500',
+        boxShadow: '0 10px 28px rgba(0, 0, 0, 0.5)',
         pointerEvents: 'none',
         opacity: '0',
-        transition: 'opacity 0.2s ease, transform 0.2s ease',
-        transform: 'translateY(6px)',
+        transition: 'opacity 0.22s ease, transform 0.22s ease',
+        transform: 'translateY(8px)',
       });
+
+      toastDotEl = document.createElement('span');
+      Object.assign(toastDotEl.style, {
+        width: '8px',
+        height: '8px',
+        borderRadius: '50%',
+        flexShrink: '0',
+      });
+
+      toastTextEl = document.createElement('span');
+      el.appendChild(toastDotEl);
+      el.appendChild(toastTextEl);
       document.body.appendChild(el);
     }
-    el.textContent = text;
+
+    const bar = document.querySelector('ytmusic-player-bar');
+    if (bar && !bar.hasAttribute('hidden')) {
+      const rect = bar.getBoundingClientRect();
+      if (rect.height > 0 && rect.top < window.innerHeight) {
+        el.style.bottom = `${Math.round(window.innerHeight - rect.top + 16)}px`;
+      } else {
+        el.style.bottom = '20px';
+      }
+    } else {
+      el.style.bottom = '20px';
+    }
+
+    const p = visualizerColors.primary;
+    if (toastDotEl) {
+      toastDotEl.style.background = `rgb(${p[0]}, ${p[1]}, ${p[2]})`;
+      toastDotEl.style.boxShadow = `0 0 8px rgba(${p[0]}, ${p[1]}, ${p[2]}, 0.75)`;
+    }
+    if (toastTextEl) {
+      toastTextEl.textContent = text;
+    } else {
+      el.textContent = text;
+    }
+
     el.style.opacity = '1';
     el.style.transform = 'translateY(0)';
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       el.style.opacity = '0';
-      el.style.transform = 'translateY(6px)';
+      el.style.transform = 'translateY(8px)';
     }, 2800);
   }
 
   // ---- 2. Ad-stripping in JSON / Fetch ----
   const AD_KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];
 
-  function stripAdsFromObject(obj, depth = 0) {
+  function stripAdsFromObject(obj, depth = 0, seen = null) {
     if (!obj || typeof obj !== 'object' || depth > 3) return false;
+    const visited = seen || new WeakSet();
+    if (visited.has(obj)) return false;
+    visited.add(obj);
+
     let removed = false;
     for (const key of AD_KEYS) {
-      if (key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
         delete obj[key];
         removed = true;
       }
     }
     if (obj.playerResponse && typeof obj.playerResponse === 'object') {
-      if (stripAdsFromObject(obj.playerResponse, depth + 1)) removed = true;
+      if (stripAdsFromObject(obj.playerResponse, depth + 1, visited)) removed = true;
     }
     if (obj.response && typeof obj.response === 'object') {
-      if (stripAdsFromObject(obj.response, depth + 1)) removed = true;
+      if (stripAdsFromObject(obj.response, depth + 1, visited)) removed = true;
     }
     return removed;
   }
@@ -99,7 +147,10 @@
     if (
       config.adBlockEnabled &&
       typeof text === 'string' &&
-      (text.includes('adPlacements') || text.includes('playerAds') || text.includes('adSlots'))
+      (text.includes('adPlacements') ||
+        text.includes('playerAds') ||
+        text.includes('adSlots') ||
+        text.includes('adBreakHeartbeatParams'))
     ) {
       if (stripAdsFromObject(parsed)) {
         postToPreload('ad-blocked');
@@ -143,22 +194,40 @@
   }
 
   // ---- 4. Fallback Video Ad Skipper ----
-  function checkAndSkipDomAd() {
-    if (!config.adBlockEnabled) return;
+  function isAdCurrentlyShowing() {
     const player = document.getElementById('movie_player');
-    const video = document.querySelector('video');
-    if (!player || !video) return;
-
-    const isAdShowing =
+    if (!player) return false;
+    return (
       player.classList.contains('ad-showing') ||
-      player.classList.contains('ad-interrupting');
+      player.classList.contains('ad-interrupting')
+    );
+  }
+
+  function checkAndSkipDomAd() {
+    const video = document.querySelector('video');
+    const isAdShowing = isAdCurrentlyShowing();
+
+    if (!config.adBlockEnabled) {
+      if (savedMuteBeforeAd !== null && video) {
+        video.muted = savedMuteBeforeAd;
+      }
+      savedMuteBeforeAd = null;
+      wasAdShowing = false;
+      return;
+    }
+
+    if (!video) return;
 
     if (isAdShowing) {
+      if (!wasAdShowing) {
+        wasAdShowing = true;
+        postToPreload('ad-blocked');
+      }
       if (savedMuteBeforeAd === null) {
         savedMuteBeforeAd = video.muted;
       }
       video.muted = true;
-      if (Number.isFinite(video.duration) && video.duration > 0) {
+      if (Number.isFinite(video.duration) && video.duration > 0 && video.currentTime < video.duration - 0.35) {
         video.currentTime = video.duration;
       }
       const skipBtn = document.querySelector(
@@ -167,10 +236,12 @@
       if (skipBtn) {
         skipBtn.click();
       }
-      postToPreload('ad-blocked');
-    } else if (savedMuteBeforeAd !== null) {
-      video.muted = savedMuteBeforeAd;
-      savedMuteBeforeAd = null;
+    } else {
+      wasAdShowing = false;
+      if (savedMuteBeforeAd !== null) {
+        video.muted = savedMuteBeforeAd;
+        savedMuteBeforeAd = null;
+      }
     }
   }
 
@@ -183,7 +254,9 @@
     }
     const urlId = new URLSearchParams(window.location.search).get('v');
     if (urlId) return urlId;
-    const titleLink = document.querySelector('ytmusic-player-bar a.ytp-title-link');
+    const titleLink = document.querySelector(
+      'ytmusic-player-bar a.ytp-title-link, ytmusic-player-bar .title a[href*="v="]'
+    );
     if (titleLink && titleLink.href) {
       try {
         return new URL(titleLink.href).searchParams.get('v');
@@ -195,6 +268,9 @@
   }
 
   function refreshTrackAndSegments() {
+    if (isAdCurrentlyShowing()) {
+      return;
+    }
     const vid = detectVideoId();
     if (vid && vid !== currentVideoId) {
       currentVideoId = vid;
@@ -209,9 +285,8 @@
   }
 
   function handleVideoTimeUpdate(video) {
-    if (!config.sponsorBlockEnabled || !activeSegments.length) return;
+    if (!config.sponsorBlockEnabled || !activeSegments.length || isAdCurrentlyShowing()) return;
     const t = video.currentTime;
-    // Reset skip markers if user rewound significantly
     if (t < lastVideoTime - 2) {
       skippedInPass.clear();
     }
@@ -236,7 +311,8 @@
     const titleEl = document.querySelector('ytmusic-player-bar .title.ytmusic-player-bar');
     const bylineEl = document.querySelector('ytmusic-player-bar .byline.ytmusic-player-bar');
 
-    const title = (titleEl && titleEl.textContent && titleEl.textContent.trim()) ||
+    const title =
+      (titleEl && titleEl.textContent && titleEl.textContent.trim()) ||
       (msMeta && msMeta.title) ||
       '';
 
@@ -254,15 +330,28 @@
       if (imgEl && imgEl.src) artworkUrl = imgEl.src;
     }
 
+    const player = document.getElementById('movie_player');
     const video = document.querySelector('video');
     const isPlaying = Boolean(video && !video.paused && !video.ended);
     const duration = video && Number.isFinite(video.duration) ? video.duration : 0;
-    const volume = video && typeof video.volume === 'number' ? video.volume : 1;
-    const muted = Boolean(video && video.muted);
+
+    let volume = video && typeof video.volume === 'number' ? video.volume : 1;
+    let muted = Boolean(video && video.muted);
+    if (player && typeof player.getVolume === 'function') {
+      const pVol = Number(player.getVolume());
+      if (Number.isFinite(pVol)) {
+        volume = Math.min(1, Math.max(0, pVol / 100));
+      }
+    }
+    if (player && typeof player.isMuted === 'function') {
+      muted = Boolean(player.isMuted());
+    }
+
     return { isPlaying, title, artist, videoId: currentVideoId, artworkUrl, duration, volume, muted };
   }
 
   function reportPlayerState() {
+    if (isAdCurrentlyShowing()) return;
     const state = readTrackMetadata();
     const serialized = JSON.stringify(state);
     if (serialized !== lastReportedState) {
@@ -314,7 +403,7 @@
     setTimeout(reportPlayerState, 120);
   }
 
-  // ---- 6. Audio Visualizer ----
+  // ---- 6. Perceptual Audio Visualizer ----
   let vizCanvas = null;
   let vizCtx = null;
   let vizAudioCtx = null;
@@ -322,7 +411,35 @@
   let vizData = null;
   let vizRafId = null;
   let vizSourceAttachedVideo = null;
+  let vizSourceNode = null;
   let vizSmoothed = null;
+  const VIZ_BANDS = 40;
+  let bandBinRanges = null;
+
+  function computeBandRanges(binCount) {
+    const ranges = [];
+    const minBin = 1;
+    const maxBin = Math.max(minBin + 1, Math.min(binCount - 1, Math.round(binCount * 0.62)));
+    for (let i = 0; i < VIZ_BANDS; i += 1) {
+      const t0 = i / VIZ_BANDS;
+      const t1 = (i + 1) / VIZ_BANDS;
+      const start = Math.floor(minBin * Math.pow(maxBin / minBin, t0));
+      const end = Math.max(start, Math.floor(minBin * Math.pow(maxBin / minBin, t1)));
+      ranges.push([start, Math.min(binCount - 1, end)]);
+    }
+    return ranges;
+  }
+
+  function isPlayerBarVisible() {
+    const bar = document.querySelector('ytmusic-player-bar');
+    if (!bar || bar.hasAttribute('hidden')) return { visible: false, bottomPx: 72 };
+    const rect = bar.getBoundingClientRect();
+    if (rect.height <= 0 || rect.top >= window.innerHeight - 4) {
+      return { visible: false, bottomPx: 72 };
+    }
+    const bottomPx = Math.max(0, Math.round(window.innerHeight - rect.top));
+    return { visible: true, bottomPx };
+  }
 
   function ensureVisualizerCanvas() {
     if (!document.body) return null;
@@ -338,30 +455,26 @@
         height: '44px',
         pointerEvents: 'none',
         zIndex: '3',
-        opacity: '0.78',
+        opacity: '0.82',
       });
       document.body.appendChild(vizCanvas);
       vizCtx = vizCanvas.getContext('2d');
     }
 
-    const bar = document.querySelector('ytmusic-player-bar');
-    if (bar) {
-      const rect = bar.getBoundingClientRect();
-      if (rect.height > 0) {
-        vizCanvas.style.bottom = `${Math.round(rect.height)}px`;
-      }
-    }
+    const barState = isPlayerBarVisible();
+    vizCanvas.style.bottom = `${barState.bottomPx}px`;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const targetW = Math.floor(window.innerWidth * dpr);
+    const targetW = Math.max(1, Math.floor(window.innerWidth * dpr));
     const targetH = Math.floor(44 * dpr);
     if (vizCanvas.width !== targetW || vizCanvas.height !== targetH) {
       vizCanvas.width = targetW;
       vizCanvas.height = targetH;
     }
 
-    vizCanvas.style.display = config.visualizerEnabled ? 'block' : 'none';
-    return vizCanvas;
+    const shouldShow = Boolean(config.visualizerEnabled && barState.visible);
+    vizCanvas.style.display = shouldShow ? 'block' : 'none';
+    return shouldShow ? vizCanvas : null;
   }
 
   function setupVisualizerAudio(video) {
@@ -397,14 +510,22 @@
           vizAudioCtx.resume().catch(() => {});
         }
 
-        vizAnalyser = vizAudioCtx.createAnalyser();
-        vizAnalyser.fftSize = 128;
-        vizAnalyser.smoothingTimeConstant = 0.78;
-        vizData = new Uint8Array(vizAnalyser.frequencyBinCount);
-        vizSmoothed = new Float32Array(vizAnalyser.frequencyBinCount);
+        if (vizSourceNode) {
+          try { vizSourceNode.disconnect(); } catch {}
+          vizSourceNode = null;
+        }
 
-        const src = vizAudioCtx.createMediaStreamSource(stream);
-        src.connect(vizAnalyser);
+        if (!vizAnalyser) {
+          vizAnalyser = vizAudioCtx.createAnalyser();
+          vizAnalyser.fftSize = 256;
+          vizAnalyser.smoothingTimeConstant = 0.76;
+          vizData = new Uint8Array(vizAnalyser.frequencyBinCount);
+          vizSmoothed = new Float32Array(VIZ_BANDS);
+          bandBinRanges = computeBandRanges(vizAnalyser.frequencyBinCount);
+        }
+
+        vizSourceNode = vizAudioCtx.createMediaStreamSource(stream);
+        vizSourceNode.connect(vizAnalyser);
         vizSourceAttachedVideo = video;
         startVisualizerLoop();
       };
@@ -432,7 +553,7 @@
       }
 
       const canvas = ensureVisualizerCanvas();
-      if (!canvas || !vizCtx || !vizAnalyser || !vizData) return;
+      if (!canvas || !vizCtx || !vizAnalyser || !vizData || !vizSmoothed || !bandBinRanges) return;
 
       vizAnalyser.getByteFrequencyData(vizData);
       const video = document.querySelector('video');
@@ -442,29 +563,39 @@
       const h = canvas.height;
       vizCtx.clearRect(0, 0, w, h);
 
-      const bins = Math.min(48, vizData.length);
-      const totalBars = bins * 2;
-      const gap = Math.max(2, w / (totalBars * 3.5));
+      const totalBars = VIZ_BANDS * 2;
+      const gap = Math.max(2, w / (totalBars * 3.2));
       const barWidth = Math.max(2, (w - gap * (totalBars - 1)) / totalBars);
 
       const p = visualizerColors.primary;
       const s = visualizerColors.secondary;
-      const grad = vizCtx.createLinearGradient(0, 0, w, 0);
-      grad.addColorStop(0, `rgba(${s[0]}, ${s[1]}, ${s[2]}, 0.72)`);
-      grad.addColorStop(0.5, `rgba(${p[0]}, ${p[1]}, ${p[2]}, 0.86)`);
-      grad.addColorStop(1, `rgba(${s[0]}, ${s[1]}, ${s[2]}, 0.72)`);
+      const grad = vizCtx.createLinearGradient(0, h, 0, 0);
+      grad.addColorStop(0, `rgba(${s[0]}, ${s[1]}, ${s[2]}, 0.45)`);
+      grad.addColorStop(0.55, `rgba(${p[0]}, ${p[1]}, ${p[2]}, 0.82)`);
+      grad.addColorStop(1, `rgba(255, 255, 255, 0.88)`);
       vizCtx.fillStyle = grad;
 
       let maxEnergy = 0;
-      for (let i = 0; i < bins; i += 1) {
-        const raw = playing ? vizData[i] / 255 : 0;
-        vizSmoothed[i] = vizSmoothed[i] * 0.72 + raw * 0.28;
+      for (let i = 0; i < VIZ_BANDS; i += 1) {
+        let raw = 0;
+        if (playing) {
+          const [startBin, endBin] = bandBinRanges[i];
+          let sum = 0;
+          let count = 0;
+          for (let b = startBin; b <= endBin; b += 1) {
+            sum += vizData[b];
+            count += 1;
+          }
+          raw = count > 0 ? sum / (count * 255) : 0;
+        }
+
+        const attackRelease = raw > vizSmoothed[i] ? 0.34 : 0.22;
+        vizSmoothed[i] = vizSmoothed[i] * (1 - attackRelease) + raw * attackRelease;
         if (vizSmoothed[i] > maxEnergy) maxEnergy = vizSmoothed[i];
 
-        const barH = Math.max(2, Math.pow(vizSmoothed[i], 1.15) * (h - 4));
+        const barH = Math.max(2, Math.pow(vizSmoothed[i], 1.1) * (h - 4));
         const y = h - barH;
 
-        // Mirrored symmetric spectrum from center outwards
         const leftX = w / 2 - (i + 1) * (barWidth + gap) + gap / 2;
         const rightX = w / 2 + i * (barWidth + gap) + gap / 2;
         const radius = Math.min(barWidth / 2, barH / 2, 4);
@@ -483,7 +614,7 @@
     vizRafId = requestAnimationFrame(renderFrame);
   }
 
-  // ---- 7. Attach Video & Mutation Observers ----
+  // ---- 7. Attach Video & Throttled Mutation Observers ----
   let hookedVideo = null;
   let lastTimeSent = 0;
   function attachVideoHooks() {
@@ -522,16 +653,44 @@
     });
   }
 
+  let domCheckTimer = null;
+  function scheduleDomCheck() {
+    if (domCheckTimer !== null) return;
+    domCheckTimer = setTimeout(() => {
+      domCheckTimer = null;
+      syncAdBlockStyle();
+      attachVideoHooks();
+      checkAndSkipDomAd();
+      refreshTrackAndSegments();
+      ensureVisualizerCanvas();
+    }, 100);
+  }
+
+  function isOwnElement(node) {
+    let cur = node && node.nodeType === 1 ? node : node && node.parentElement;
+    while (cur) {
+      if (cur.id && cur.id.startsWith('ytmc-')) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
   function startObservers() {
     syncAdBlockStyle();
     ensureVisualizerCanvas();
     attachVideoHooks();
 
-    const observer = new MutationObserver(() => {
-      syncAdBlockStyle();
-      attachVideoHooks();
-      checkAndSkipDomAd();
-      refreshTrackAndSegments();
+    const observer = new MutationObserver((mutations) => {
+      let relevant = false;
+      for (let i = 0; i < mutations.length; i += 1) {
+        if (!isOwnElement(mutations[i].target)) {
+          relevant = true;
+          break;
+        }
+      }
+      if (relevant) {
+        scheduleDomCheck();
+      }
     });
 
     if (document.documentElement) {
@@ -544,7 +703,7 @@
     }
 
     window.addEventListener('yt-navigate-finish', () => {
-      setTimeout(refreshTrackAndSegments, 200);
+      setTimeout(refreshTrackAndSegments, 180);
     });
 
     window.addEventListener('resize', ensureVisualizerCanvas);
@@ -558,13 +717,14 @@
       attachVideoHooks();
       refreshTrackAndSegments();
       ensureVisualizerCanvas();
-    }, 1500);
+    }, 2000);
   }
 
   // ---- 8. Listen for commands/settings from preload ----
   window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data || event.data.source !== 'ytmc-preload') return;
-    const { type, payload } = event.data;
+    const { type } = event.data;
+    const payload = event.data.payload !== undefined ? event.data.payload : event.data.data;
 
     if (type === 'config' && payload) {
       const prevSb = config.sponsorBlockEnabled;
@@ -573,6 +733,9 @@
       }
       if (typeof payload.sponsorBlockEnabled === 'boolean') {
         config.sponsorBlockEnabled = payload.sponsorBlockEnabled;
+        if (!config.sponsorBlockEnabled) {
+          activeSegments = [];
+        }
       }
       if (typeof payload.visualizerEnabled === 'boolean') {
         config.visualizerEnabled = payload.visualizerEnabled;
@@ -590,7 +753,7 @@
         CATEGORY_LABELS = { ...CATEGORY_LABELS, ...payload.sponsorBlockCategories };
       }
       syncAdBlockStyle();
-      if (!prevSb && config.sponsorBlockEnabled && currentVideoId) {
+      if (config.sponsorBlockEnabled && currentVideoId && (!prevSb || payload.refetchSponsorBlock)) {
         postToPreload('sponsorblock-request', { videoId: currentVideoId });
       }
     } else if (type === 'visualizer-theme' && payload) {
@@ -633,4 +796,6 @@
   } else {
     startObservers();
   }
+
+  postToPreload('page-ready');
 })();

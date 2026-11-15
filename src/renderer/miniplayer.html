@@ -1,14 +1,15 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: https:;" />
-  <title>YouTube Music — Міні-плеєр</title>
+  <title>YouTube Music — Mini Player</title>
   <style>
     :root {
       --c1: rgba(255, 45, 85, 0.28);
       --c2: rgba(90, 60, 200, 0.24);
       --accent: rgb(255, 45, 85);
+      --accent-soft: rgba(255, 45, 85, 0.22);
     }
 
     * {
@@ -22,38 +23,41 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      font-family: "Segoe UI", Roboto, sans-serif;
+      font-family: "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
       color: #f4f4f6;
       background:
-        radial-gradient(circle at 15% 20%, var(--c1) 0%, transparent 62%),
-        radial-gradient(circle at 85% 85%, var(--c2) 0%, transparent 62%),
-        #121216;
+        radial-gradient(circle at 14% 18%, var(--c1) 0%, transparent 60%),
+        radial-gradient(circle at 86% 84%, var(--c2) 0%, transparent 62%),
+        linear-gradient(160deg, #17171d 0%, #0e0e13 100%);
+      transition: background 0.6s ease;
     }
 
     .shell {
+      position: relative;
       display: flex;
       flex-direction: column;
       height: 100%;
       padding: 10px 14px 12px;
       border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
 
     .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       -webkit-app-region: drag;
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 7px;
       font-size: 11.5px;
       font-weight: 600;
       letter-spacing: 0.2px;
-      color: rgba(255, 255, 255, 0.72);
+      color: rgba(255, 255, 255, 0.78);
     }
 
     .brand-dot {
@@ -61,7 +65,17 @@
       height: 8px;
       border-radius: 50%;
       background: var(--accent);
-      box-shadow: 0 0 8px var(--accent);
+      box-shadow: 0 0 9px var(--accent);
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    .shell.is-playing .brand-dot {
+      animation: dotPulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes dotPulse {
+      0%, 100% { transform: scale(1); opacity: 0.95; }
+      50% { transform: scale(1.22); opacity: 1; }
     }
 
     .win-actions {
@@ -74,25 +88,47 @@
     .icon-btn {
       width: 26px;
       height: 26px;
-      border: none;
+      border: 1px solid transparent;
       border-radius: 7px;
       background: transparent;
-      color: rgba(255, 255, 255, 0.7);
+      color: rgba(255, 255, 255, 0.72);
       display: inline-flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      transition: background 0.15s ease, color 0.15s ease;
+      padding: 0;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
     }
 
     .icon-btn:hover {
-      background: rgba(255, 255, 255, 0.11);
+      background: rgba(255, 255, 255, 0.12);
       color: #ffffff;
     }
 
-    .icon-btn.active {
-      background: rgba(255, 255, 255, 0.14);
+    .icon-btn:active {
+      transform: scale(0.92);
+    }
+
+    .icon-btn:focus-visible,
+    .ctrl-btn:focus-visible,
+    input[type="range"]:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    #pinBtn svg {
+      transition: transform 0.18s ease;
+      transform: rotate(-32deg);
+    }
+
+    #pinBtn.active {
+      background: var(--accent-soft);
+      border-color: rgba(255, 255, 255, 0.16);
       color: var(--accent);
+    }
+
+    #pinBtn.active svg {
+      transform: rotate(0deg);
     }
 
     .track-row {
@@ -103,16 +139,23 @@
     }
 
     .cover-wrap {
+      position: relative;
       width: 64px;
       height: 64px;
-      border-radius: 10px;
+      border-radius: 11px;
       overflow: hidden;
       flex-shrink: 0;
       background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.65);
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: box-shadow 0.4s ease;
+    }
+
+    .shell.is-playing .cover-wrap {
+      box-shadow: 0 10px 24px -6px var(--c1), 0 4px 12px rgba(0, 0, 0, 0.5);
     }
 
     .cover-wrap img {
@@ -125,7 +168,47 @@
     .cover-placeholder {
       width: 26px;
       height: 26px;
-      color: rgba(255, 255, 255, 0.35);
+      color: rgba(255, 255, 255, 0.36);
+    }
+
+    .eq-badge {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      display: none;
+      align-items: flex-end;
+      gap: 2px;
+      height: 14px;
+      padding: 3px 4px;
+      border-radius: 5px;
+      background: rgba(12, 12, 16, 0.72);
+      backdrop-filter: blur(6px);
+    }
+
+    .shell.is-playing .eq-badge {
+      display: flex;
+    }
+
+    .eq-badge span {
+      width: 2px;
+      height: 8px;
+      border-radius: 2px;
+      background: var(--accent);
+      transform-origin: bottom;
+      animation: eqBounce 0.8s ease-in-out infinite alternate;
+    }
+
+    .eq-badge span:nth-child(2) {
+      animation-delay: 0.22s;
+    }
+
+    .eq-badge span:nth-child(3) {
+      animation-delay: 0.44s;
+    }
+
+    @keyframes eqBounce {
+      0% { transform: scaleY(0.32); }
+      100% { transform: scaleY(1); }
     }
 
     .meta {
@@ -136,6 +219,7 @@
     .track-title {
       font-size: 14.5px;
       font-weight: 600;
+      line-height: 1.25;
       color: #ffffff;
       white-space: nowrap;
       overflow: hidden;
@@ -144,7 +228,7 @@
 
     .track-artist {
       font-size: 12.5px;
-      color: rgba(255, 255, 255, 0.65);
+      color: rgba(255, 255, 255, 0.66);
       margin-top: 3px;
       white-space: nowrap;
       overflow: hidden;
@@ -152,32 +236,71 @@
     }
 
     .progress-section {
-      margin-top: 12px;
+      margin-top: 8px;
+    }
+
+    .progress-hit {
+      position: relative;
+      height: 14px;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      touch-action: none;
     }
 
     .progress-bar {
       position: relative;
-      height: 5px;
+      width: 100%;
+      height: 4px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.14);
-      cursor: pointer;
-      overflow: hidden;
+      background: rgba(255, 255, 255, 0.16);
+      overflow: visible;
+      transition: height 0.15s ease;
+    }
+
+    .progress-hit:hover .progress-bar,
+    .progress-hit.scrubbing .progress-bar {
+      height: 6px;
     }
 
     .progress-fill {
+      position: relative;
       height: 100%;
       width: 0%;
       border-radius: 999px;
       background: var(--accent);
-      transition: width 0.15s linear;
+      transition: width 0.14s linear;
+    }
+
+    .progress-fill.no-transition {
+      transition: none !important;
+    }
+
+    .progress-thumb {
+      position: absolute;
+      right: -5px;
+      top: 50%;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.55);
+      transform: translateY(-50%) scale(0);
+      transition: transform 0.12s ease;
+      pointer-events: none;
+    }
+
+    .progress-hit:hover .progress-thumb,
+    .progress-hit.scrubbing .progress-thumb {
+      transform: translateY(-50%) scale(1);
     }
 
     .time-row {
       display: flex;
       justify-content: space-between;
-      margin-top: 4px;
+      margin-top: 1px;
       font-size: 10.5px;
-      color: rgba(255, 255, 255, 0.5);
+      color: rgba(255, 255, 255, 0.54);
       font-variant-numeric: tabular-nums;
     }
 
@@ -192,21 +315,22 @@
     .transport {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 7px;
     }
 
     .ctrl-btn {
       width: 34px;
       height: 34px;
       border-radius: 50%;
-      border: none;
+      border: 1px solid rgba(255, 255, 255, 0.08);
       background: rgba(255, 255, 255, 0.08);
       color: #ffffff;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      transition: transform 0.12s ease, background 0.15s ease;
+      padding: 0;
+      transition: transform 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
     }
 
     .ctrl-btn:hover {
@@ -214,15 +338,16 @@
     }
 
     .ctrl-btn:active {
-      transform: scale(0.94);
+      transform: scale(0.93);
     }
 
     .ctrl-btn.primary {
       width: 38px;
       height: 38px;
+      border-color: transparent;
       background: var(--accent);
       color: #ffffff;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 4px 16px var(--c1), 0 3px 10px rgba(0, 0, 0, 0.4);
     }
 
     .ctrl-btn.primary:hover {
@@ -233,13 +358,29 @@
     .volume-wrap {
       display: flex;
       align-items: center;
-      gap: 6px;
-      width: 112px;
+      gap: 4px;
+      width: 122px;
     }
 
-    .volume-wrap svg {
-      color: rgba(255, 255, 255, 0.65);
+    .mute-btn {
+      width: 24px;
+      height: 24px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.72);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
       flex-shrink: 0;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .mute-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
     }
 
     input[type="range"] {
@@ -258,29 +399,35 @@
       height: 12px;
       border-radius: 50%;
       background: #ffffff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
       cursor: pointer;
+      transition: transform 0.12s ease;
+    }
+
+    input[type="range"]:hover::-webkit-slider-thumb {
+      transform: scale(1.12);
     }
   </style>
 </head>
 <body>
-  <div class="shell">
+  <div id="shell" class="shell">
     <div class="topbar">
       <div class="brand">
         <span class="brand-dot"></span>
         <span>YouTube Music</span>
       </div>
       <div class="win-actions">
-        <button id="pinBtn" class="icon-btn" title="Закріпити поверх вікон">
+        <button id="pinBtn" class="icon-btn" title="Pin on top" aria-label="Pin on top" aria-pressed="false">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
             <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
           </svg>
         </button>
-        <button id="openMainBtn" class="icon-btn" title="Відкрити головне вікно">
+        <button id="openMainBtn" class="icon-btn" title="Open main window" aria-label="Open main window">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
             <path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
           </svg>
         </button>
-        <button id="closeBtn" class="icon-btn" title="Сховати міні-плеєр">
+        <button id="closeBtn" class="icon-btn" title="Hide mini player" aria-label="Hide mini player">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
             <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
           </svg>
@@ -294,16 +441,23 @@
         <svg id="coverPlaceholder" class="cover-placeholder" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
         </svg>
+        <div class="eq-badge" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
       </div>
       <div class="meta">
-        <div id="trackTitle" class="track-title">Нічого не відтворюється</div>
+        <div id="trackTitle" class="track-title">Nothing playing</div>
         <div id="trackArtist" class="track-artist">YouTube Music</div>
       </div>
     </div>
 
     <div class="progress-section">
-      <div id="progressBar" class="progress-bar">
-        <div id="progressFill" class="progress-fill"></div>
+      <div id="progressHit" class="progress-hit" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div id="progressBar" class="progress-bar">
+          <div id="progressFill" class="progress-fill">
+            <span class="progress-thumb"></span>
+          </div>
+        </div>
       </div>
       <div class="time-row">
         <span id="curTime">0:00</span>
@@ -313,12 +467,12 @@
 
     <div class="controls-row">
       <div class="transport">
-        <button id="prevBtn" class="ctrl-btn" title="Попередній трек">
+        <button id="prevBtn" class="ctrl-btn" title="Previous track" aria-label="Previous track">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
             <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>
           </svg>
         </button>
-        <button id="playPauseBtn" class="ctrl-btn primary" title="Відтворити / Пауза">
+        <button id="playPauseBtn" class="ctrl-btn primary" title="Play / Pause" aria-label="Play / Pause">
           <svg id="playIcon" width="19" height="19" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z"/>
           </svg>
@@ -326,7 +480,7 @@
             <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
           </svg>
         </button>
-        <button id="nextBtn" class="ctrl-btn" title="Наступний трек">
+        <button id="nextBtn" class="ctrl-btn" title="Next track" aria-label="Next track">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
             <path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
           </svg>
@@ -334,19 +488,29 @@
       </div>
 
       <div id="volumeWrap" class="volume-wrap" title="Volume">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-        </svg>
-        <input id="volumeRange" type="range" min="0" max="100" value="100" />
+        <button id="muteBtn" class="mute-btn" title="Mute" aria-label="Mute">
+          <svg id="volHighIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+          </svg>
+          <svg id="volLowIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+            <path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/>
+          </svg>
+          <svg id="volMuteIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+            <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/>
+          </svg>
+        </button>
+        <input id="volumeRange" type="range" min="0" max="100" value="100" aria-label="Volume" />
       </div>
     </div>
   </div>
 
   <script>
+    const shell = document.getElementById('shell');
     const coverImg = document.getElementById('coverImg');
     const coverPlaceholder = document.getElementById('coverPlaceholder');
     const trackTitle = document.getElementById('trackTitle');
     const trackArtist = document.getElementById('trackArtist');
+    const progressHit = document.getElementById('progressHit');
     const progressBar = document.getElementById('progressBar');
     const progressFill = document.getElementById('progressFill');
     const curTimeEl = document.getElementById('curTime');
@@ -360,23 +524,75 @@
     const playPauseBtn = document.getElementById('playPauseBtn');
     const nextBtn = document.getElementById('nextBtn');
     const volumeWrap = document.getElementById('volumeWrap');
+    const muteBtn = document.getElementById('muteBtn');
+    const volHighIcon = document.getElementById('volHighIcon');
+    const volLowIcon = document.getElementById('volLowIcon');
+    const volMuteIcon = document.getElementById('volMuteIcon');
     const volumeRange = document.getElementById('volumeRange');
 
     let durationSec = 0;
+    let currentSec = 0;
+    let isPlayingState = false;
+    let isPinnedState = false;
+    let hasTrackTitle = false;
+    let lastTrackKey = '';
+    let lastPct = 0;
     let isAdjustingVolume = false;
+    let isScrubbing = false;
+    let lastNonZeroVolume = 100;
     let currentStrings = null;
+
+    function refreshDynamicLabels() {
+      const s = currentStrings || {};
+      const pinText = isPinnedState ? (s.unpin || s.pin || 'Unpin') : (s.pin || 'Pin on top');
+      pinBtn.title = pinText;
+      pinBtn.setAttribute('aria-label', pinText);
+      pinBtn.setAttribute('aria-pressed', isPinnedState ? 'true' : 'false');
+
+      const ppText = isPlayingState
+        ? (s.pause || s.playPause || 'Pause')
+        : (s.play || s.playPause || 'Play');
+      playPauseBtn.title = ppText;
+      playPauseBtn.setAttribute('aria-label', ppText);
+
+      const volVal = Number(volumeRange.value);
+      const muteText = volVal <= 0 ? (s.unmute || 'Unmute') : (s.mute || 'Mute');
+      muteBtn.title = muteText;
+      muteBtn.setAttribute('aria-label', muteText);
+    }
 
     function applyStrings(strings) {
       if (!strings) return;
       currentStrings = strings;
+      const inferredLang = strings.lang === 'uk' || strings.lang === 'en' ? strings.lang : 'en';
+      document.documentElement.lang = inferredLang;
+
       if (strings.title) document.title = strings.title;
-      if (strings.pin) pinBtn.title = strings.pin;
-      if (strings.openMain) openMainBtn.title = strings.openMain;
-      if (strings.close) closeBtn.title = strings.close;
-      if (strings.prev) prevBtn.title = strings.prev;
-      if (strings.playPause) playPauseBtn.title = strings.playPause;
-      if (strings.next) nextBtn.title = strings.next;
-      if (strings.volume) volumeWrap.title = strings.volume;
+      if (strings.openMain) {
+        openMainBtn.title = strings.openMain;
+        openMainBtn.setAttribute('aria-label', strings.openMain);
+      }
+      if (strings.close) {
+        closeBtn.title = strings.close;
+        closeBtn.setAttribute('aria-label', strings.close);
+      }
+      if (strings.prev) {
+        prevBtn.title = strings.prev;
+        prevBtn.setAttribute('aria-label', strings.prev);
+      }
+      if (strings.next) {
+        nextBtn.title = strings.next;
+        nextBtn.setAttribute('aria-label', strings.next);
+      }
+      if (strings.volume) {
+        volumeWrap.title = strings.volume;
+        volumeRange.setAttribute('aria-label', strings.volume);
+      }
+      if (!hasTrackTitle && strings.nothingPlaying) {
+        trackTitle.textContent = strings.nothingPlaying;
+        trackTitle.title = strings.nothingPlaying;
+      }
+      refreshDynamicLabels();
     }
 
     function fmtTime(sec) {
@@ -387,90 +603,226 @@
       return `${m}:${String(s).padStart(2, '0')}`;
     }
 
-    function updateProgress(current) {
-      curTimeEl.textContent = fmtTime(current);
+    function updateProgress(current, instant = false) {
+      currentSec = Number.isFinite(current) ? Math.max(0, current) : 0;
+      curTimeEl.textContent = fmtTime(currentSec);
       totTimeEl.textContent = fmtTime(durationSec);
-      const pct = durationSec > 0 ? Math.min(100, Math.max(0, (current / durationSec) * 100)) : 0;
-      progressFill.style.width = `${pct}%`;
+      const pct = durationSec > 0 ? Math.min(100, Math.max(0, (currentSec / durationSec) * 100)) : 0;
+      if (instant || pct < lastPct - 1.5) {
+        progressFill.classList.add('no-transition');
+        progressFill.style.width = `${pct}%`;
+        void progressFill.offsetWidth;
+        progressFill.classList.remove('no-transition');
+      } else {
+        progressFill.style.width = `${pct}%`;
+      }
+      lastPct = pct;
+      progressHit.setAttribute('aria-valuenow', String(Math.round(pct)));
     }
+
+    function updateVolumeVisual(val) {
+      const clamped = Math.min(100, Math.max(0, Math.round(val)));
+      volumeRange.value = String(clamped);
+      volumeRange.style.background = `linear-gradient(to right, var(--accent) ${clamped}%, rgba(255, 255, 255, 0.18) ${clamped}%)`;
+      if (clamped > 0) {
+        lastNonZeroVolume = clamped;
+      }
+      volHighIcon.style.display = clamped >= 50 ? 'block' : 'none';
+      volLowIcon.style.display = clamped > 0 && clamped < 50 ? 'block' : 'none';
+      volMuteIcon.style.display = clamped <= 0 ? 'block' : 'none';
+      refreshDynamicLabels();
+    }
+
+    function showArtwork(src) {
+      if (!src) {
+        coverImg.removeAttribute('src');
+        coverImg.style.display = 'none';
+        coverPlaceholder.style.display = 'block';
+        return;
+      }
+      if (coverImg.src !== src) {
+        coverImg.src = src;
+      }
+      coverImg.style.display = 'block';
+      coverPlaceholder.style.display = 'none';
+    }
+
+    coverImg.addEventListener('error', () => {
+      coverImg.style.display = 'none';
+      coverPlaceholder.style.display = 'block';
+    });
 
     window.miniPlayerAPI.onStateUpdate((state) => {
       if (!state) return;
       if (state.strings) {
         applyStrings(state.strings);
       }
+
+      hasTrackTitle = Boolean(state.title);
       const fallbackTitle = (currentStrings && currentStrings.nothingPlaying) || 'Nothing playing';
-      trackTitle.textContent = state.title || fallbackTitle;
-      trackArtist.textContent = state.artist || 'YouTube Music';
-      durationSec = state.duration || 0;
-      updateProgress(state.currentTime || 0);
+      const resolvedTitle = state.title || fallbackTitle;
+      const resolvedArtist = state.artist || 'YouTube Music';
+      trackTitle.textContent = resolvedTitle;
+      trackTitle.title = resolvedTitle;
+      trackArtist.textContent = resolvedArtist;
+      trackArtist.title = resolvedArtist;
 
-      const playing = Boolean(state.isPlaying);
-      playIcon.style.display = playing ? 'none' : 'block';
-      pauseIcon.style.display = playing ? 'block' : 'none';
+      const trackKey = `${resolvedTitle}::${resolvedArtist}`;
+      const trackChanged = trackKey !== lastTrackKey;
+      lastTrackKey = trackKey;
 
-      pinBtn.classList.toggle('active', Boolean(state.isPinned));
-
-      const src = state.artworkDataUrl || state.artworkUrl || '';
-      if (src) {
-        if (coverImg.src !== src) coverImg.src = src;
-        coverImg.style.display = 'block';
-        coverPlaceholder.style.display = 'none';
-      } else {
-        coverImg.style.display = 'none';
-        coverPlaceholder.style.display = 'block';
+      durationSec = Number.isFinite(state.duration) ? state.duration : 0;
+      if (!isScrubbing) {
+        updateProgress(state.currentTime || 0, trackChanged);
       }
 
+      isPlayingState = Boolean(state.isPlaying);
+      shell.classList.toggle('is-playing', isPlayingState);
+      playIcon.style.display = isPlayingState ? 'none' : 'block';
+      pauseIcon.style.display = isPlayingState ? 'block' : 'none';
+
+      isPinnedState = Boolean(state.isPinned);
+      pinBtn.classList.toggle('active', isPinnedState);
+
+      showArtwork(state.artworkDataUrl || state.artworkUrl || '');
+
       if (!isAdjustingVolume && typeof state.volume === 'number') {
-        volumeRange.value = state.muted ? 0 : Math.round(state.volume * 100);
+        const vol = state.muted ? 0 : Math.round(state.volume * 100);
+        updateVolumeVisual(vol);
+      } else {
+        refreshDynamicLabels();
       }
     });
 
     window.miniPlayerAPI.onTimeUpdate((time) => {
-      updateProgress(time);
+      if (!isScrubbing) {
+        updateProgress(time);
+      }
     });
 
     window.miniPlayerAPI.onThemeUpdate((theme) => {
       if (!theme || !theme.primary || !theme.secondary) return;
       const p = theme.primary;
       const s = theme.secondary;
-      document.documentElement.style.setProperty('--c1', `rgba(${p[0]}, ${p[1]}, ${p[2]}, 0.30)`);
+      document.documentElement.style.setProperty('--c1', `rgba(${p[0]}, ${p[1]}, ${p[2]}, 0.32)`);
       document.documentElement.style.setProperty('--c2', `rgba(${s[0]}, ${s[1]}, ${s[2]}, 0.26)`);
       document.documentElement.style.setProperty('--accent', `rgb(${p[0]}, ${p[1]}, ${p[2]})`);
+      document.documentElement.style.setProperty('--accent-soft', `rgba(${p[0]}, ${p[1]}, ${p[2]}, 0.22)`);
+      updateVolumeVisual(Number(volumeRange.value));
     });
 
-    document.getElementById('prevBtn').addEventListener('click', () => {
+    prevBtn.addEventListener('click', () => {
       window.miniPlayerAPI.sendCommand('previous');
     });
-    document.getElementById('playPauseBtn').addEventListener('click', () => {
+    playPauseBtn.addEventListener('click', () => {
       window.miniPlayerAPI.sendCommand('toggle');
     });
-    document.getElementById('nextBtn').addEventListener('click', () => {
+    nextBtn.addEventListener('click', () => {
       window.miniPlayerAPI.sendCommand('next');
     });
-    document.getElementById('openMainBtn').addEventListener('click', () => {
+    openMainBtn.addEventListener('click', () => {
       window.miniPlayerAPI.openMainWindow();
     });
-    document.getElementById('closeBtn').addEventListener('click', () => {
+    closeBtn.addEventListener('click', () => {
       window.miniPlayerAPI.close();
     });
     pinBtn.addEventListener('click', async () => {
-      const pinned = await window.miniPlayerAPI.togglePin();
-      pinBtn.classList.toggle('active', Boolean(pinned));
+      isPinnedState = Boolean(await window.miniPlayerAPI.togglePin());
+      pinBtn.classList.toggle('active', isPinnedState);
+      refreshDynamicLabels();
     });
 
-    progressBar.addEventListener('click', (e) => {
-      if (durationSec <= 0) return;
+    function computeRatioFromPointer(clientX) {
       const rect = progressBar.getBoundingClientRect();
-      const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-      window.miniPlayerAPI.seek(ratio * durationSec);
+      if (rect.width <= 0) return 0;
+      return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    }
+
+    progressHit.addEventListener('pointerdown', (e) => {
+      if (durationSec <= 0 || e.button !== 0) return;
+      isScrubbing = true;
+      progressHit.classList.add('scrubbing');
+      if (progressHit.setPointerCapture) {
+        try { progressHit.setPointerCapture(e.pointerId); } catch {}
+      }
+      const ratio = computeRatioFromPointer(e.clientX);
+      updateProgress(ratio * durationSec, true);
     });
 
-    volumeRange.addEventListener('pointerdown', () => { isAdjustingVolume = true; });
-    volumeRange.addEventListener('pointerup', () => { isAdjustingVolume = false; });
-    volumeRange.addEventListener('input', () => {
-      window.miniPlayerAPI.setVolume(Number(volumeRange.value) / 100);
+    progressHit.addEventListener('pointermove', (e) => {
+      if (!isScrubbing || durationSec <= 0) return;
+      const ratio = computeRatioFromPointer(e.clientX);
+      updateProgress(ratio * durationSec, true);
     });
+
+    function finishScrub(e, commit) {
+      if (!isScrubbing) return;
+      isScrubbing = false;
+      progressHit.classList.remove('scrubbing');
+      if (commit && durationSec > 0) {
+        const ratio = computeRatioFromPointer(e.clientX);
+        const target = ratio * durationSec;
+        updateProgress(target, true);
+        window.miniPlayerAPI.seek(target);
+      }
+    }
+
+    progressHit.addEventListener('pointerup', (e) => finishScrub(e, true));
+    progressHit.addEventListener('pointercancel', (e) => finishScrub(e, false));
+
+    const stopVolumeAdjust = () => { isAdjustingVolume = false; };
+    volumeRange.addEventListener('pointerdown', () => { isAdjustingVolume = true; });
+    volumeRange.addEventListener('pointerup', stopVolumeAdjust);
+    volumeRange.addEventListener('pointercancel', stopVolumeAdjust);
+    volumeRange.addEventListener('change', stopVolumeAdjust);
+    window.addEventListener('pointerup', stopVolumeAdjust);
+    window.addEventListener('blur', stopVolumeAdjust);
+
+    volumeRange.addEventListener('input', () => {
+      const val = Number(volumeRange.value);
+      updateVolumeVisual(val);
+      window.miniPlayerAPI.setVolume(val / 100);
+    });
+
+    muteBtn.addEventListener('click', () => {
+      const current = Number(volumeRange.value);
+      const next = current > 0 ? 0 : (lastNonZeroVolume > 0 ? lastNonZeroVolume : 50);
+      updateVolumeVisual(next);
+      window.miniPlayerAPI.setVolume(next / 100);
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && e.target.tagName !== 'BUTTON') {
+        e.preventDefault();
+        window.miniPlayerAPI.sendCommand('toggle');
+      } else if (e.key === 'ArrowLeft' && durationSec > 0) {
+        e.preventDefault();
+        const next = Math.max(0, currentSec - 5);
+        updateProgress(next, true);
+        window.miniPlayerAPI.seek(next);
+      } else if (e.key === 'ArrowRight' && durationSec > 0) {
+        e.preventDefault();
+        const next = Math.min(durationSec, currentSec + 5);
+        updateProgress(next, true);
+        window.miniPlayerAPI.seek(next);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const next = Math.min(100, Number(volumeRange.value) + 5);
+        updateVolumeVisual(next);
+        window.miniPlayerAPI.setVolume(next / 100);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = Math.max(0, Number(volumeRange.value) - 5);
+        updateVolumeVisual(next);
+        window.miniPlayerAPI.setVolume(next / 100);
+      } else if (e.key.toLowerCase() === 'm') {
+        muteBtn.click();
+      } else if (e.key === 'Escape') {
+        window.miniPlayerAPI.close();
+      }
+    });
+
+    updateVolumeVisual(100);
   </script>
 </body>
 </html>

@@ -1,29 +1,50 @@
 {
   "name": "yt-music-client",
-  "version": "1.1.0",
-  "description": "Desktop client for YouTube Music with AdBlock, SponsorBlock, System Tray, and Global Media Keys",
+  "version": "1.2.0",
+  "description": "Desktop client for YouTube Music with AdBlock, SponsorBlock, Synced Lyrics, Mini Player, and Global Media Keys",
   "main": "src/main/index.js",
+  "author": "Bohdan Bodashko",
+  "license": "MIT",
+  "homepage": "https://github.com/bohdan-bodashko/YTMusicClient",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bohdan-bodashko/YTMusicClient.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bohdan-bodashko/YTMusicClient/issues"
+  },
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "shortcut:desktop": "powershell -ExecutionPolicy Bypass -File scripts/create-shortcut.ps1 -Desktop",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "check": "node scripts/check.js",
+    "test": "node scripts/check.js",
+    "assets:icons": "python scripts/generate-icons.py",
+    "shortcut:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-shortcut.ps1 -Desktop",
+    "shortcut:startmenu": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-shortcut.ps1 -StartMenu",
     "pack": "electron-builder --dir",
-    "build": "electron-builder --win",
-    "build:portable": "electron-builder --win portable"
+    "build:nsis": "electron-builder --win nsis",
+    "build:portable": "electron-builder --win portable",
+    "build": "npm run clean && electron-builder --win"
   },
   "build": {
     "appId": "com.ytmusicclient.desktop",
     "productName": "YouTube Music Client",
+    "copyright": "Copyright © 2026 Bohdan Bodashko",
+    "asar": true,
     "directories": {
       "output": "dist"
     },
     "files": [
       "src/**/*",
       "assets/**/*",
-      "package.json"
+      "package.json",
+      "!assets/_tmp_*",
+      "!**/*.map"
     ],
     "win": {
       "icon": "assets/icon.ico",
+      "legalTrademarks": "YouTube Music Client",
       "target": [
         {
           "target": "portable",
@@ -40,14 +61,25 @@
       ]
     },
     "portable": {
-      "artifactName": "YTMusicClient-${version}-portable.exe"
+      "artifactName": "YTMusicClient-${version}-portable.exe",
+      "splashImage": "build/portableSplash.bmp"
     },
     "nsis": {
+      "guid": "c445d989-70b9-50d2-b78d-3c49a1272e89",
       "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
+      "runAfterFinish": true,
       "shortcutName": "YouTube Music Client",
+      "uninstallDisplayName": "${productName}",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
       "artifactName": "YTMusicClient-${version}-setup.exe"
     }
   },
@@ -55,9 +87,11 @@
     "youtube-music",
     "electron",
     "desktop",
-    "music-player"
+    "music-player",
+    "adblock",
+    "sponsorblock",
+    "synced-lyrics"
   ],
-  "license": "MIT",
   "devDependencies": {
     "electron": "^35.1.2",
     "electron-builder": "^26.18.0"

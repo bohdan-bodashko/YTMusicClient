@@ -1,12 +1,12 @@
 const { ipcRenderer } = require('electron');
 const { resolveLanguage, getTranslations, formatText } = require('../shared/i18n');
 
-function createSvgIcon(paths) {
+function createSvgIcon(paths, size = 20) {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', '20');
-  svg.setAttribute('height', '20');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
   svg.setAttribute('fill', 'currentColor');
   for (const d of paths) {
     const p = document.createElementNS(ns, 'path');
@@ -20,8 +20,21 @@ function rgbToCss(rgb, alpha = 1) {
   return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
 }
 
+function boostColorForDarkBg(rgb, minLuma = 90) {
+  let [r, g, b] = rgb;
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  if (luma >= minLuma) return [r, g, b];
+  if (luma < 8) return [255, 45, 85];
+  const factor = Math.min(3.5, minLuma / Math.max(1, luma));
+  r = Math.min(255, Math.round(r * factor));
+  g = Math.min(255, Math.round(g * factor));
+  b = Math.min(255, Math.round(b * factor));
+  return [r, g, b];
+}
+
 function extractPaletteFromDataUrl(dataUrl) {
   return new Promise((resolve) => {
+    const fallback = { primary: [255, 45, 85], secondary: [120, 40, 200] };
     const img = new Image();
     img.onload = () => {
       try {
@@ -46,36 +59,34 @@ function extractPaletteFromDataUrl(dataUrl) {
           const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
           const sat = max === 0 ? 0 : (max - min) / max;
 
-          // Skip near-black, near-white, and desaturated grays when possible
           if (luma < 22 || luma > 235) continue;
           const weight = sat * 2.5 + 0.2;
 
-          // Quantize into 24-step buckets
           const qr = Math.round(r / 24) * 24;
           const qg = Math.round(g / 24) * 24;
           const qb = Math.round(b / 24) * 24;
           const key = `${qr},${qg},${qb}`;
-          const prev = buckets.get(key) || { r: 0, g: 0, b: 0, w: 0, count: 0 };
+          const prev = buckets.get(key) || { r: 0, g: 0, b: 0, w: 0 };
           prev.r += r * weight;
           prev.g += g * weight;
           prev.b += b * weight;
           prev.w += weight;
-          prev.count += 1;
           buckets.set(key, prev);
         }
 
         const sorted = [...buckets.values()].sort((a, b) => b.w - a.w);
         if (sorted.length === 0) {
-          resolve({ primary: [255, 45, 85], secondary: [120, 40, 200] });
+          resolve(fallback);
           return;
         }
 
         const p = sorted[0];
-        const primary = [
+        const rawPrimary = [
           Math.min(255, Math.round(p.r / p.w)),
           Math.min(255, Math.round(p.g / p.w)),
           Math.min(255, Math.round(p.b / p.w)),
         ];
+        const primary = boostColorForDarkBg(rawPrimary, 92);
 
         let secondary = primary;
         for (let i = 1; i < sorted.length; i += 1) {
@@ -83,31 +94,38 @@ function extractPaletteFromDataUrl(dataUrl) {
           const cr = Math.round(cand.r / cand.w);
           const cg = Math.round(cand.g / cand.w);
           const cb = Math.round(cand.b / cand.w);
-          const dist = Math.hypot(cr - primary[0], cg - primary[1], cb - primary[2]);
+          const dist = Math.hypot(cr - rawPrimary[0], cg - rawPrimary[1], cb - rawPrimary[2]);
           if (dist > 55) {
-            secondary = [cr, cg, cb];
+            secondary = boostColorForDarkBg([cr, cg, cb], 64);
             break;
           }
         }
 
         resolve({ primary, secondary });
       } catch {
-        resolve({ primary: [255, 45, 85], secondary: [120, 40, 200] });
+        resolve(fallback);
       }
     };
-    img.onerror = () => resolve({ primary: [255, 45, 85], secondary: [120, 40, 200] });
+    img.onerror = () => resolve(fallback);
     img.src = dataUrl;
   });
 }
 
-function createEnhancementsController({ onOpenSettings, postToPage }) {
-  const systemLocale = (() => {
-    try {
-      return ipcRenderer.sendSync('i18n:get-locale-sync') || navigator.language || '';
-    } catch {
-      return navigator.language || '';
-    }
-  })();
+function createEnhancementsController({
+  onOpenSettings,
+  onToggleMiniPlayer,
+  postToPage,
+  systemLocale: passedLocale,
+}) {
+  const systemLocale =
+    passedLocale ||
+    (() => {
+      try {
+        return ipcRenderer.sendSync('i18n:get-locale-sync') || navigator.language || '';
+      } catch {
+        return navigator.language || '';
+      }
+    })();
 
   let settings = {
     ambientThemeEnabled: true,
@@ -136,8 +154,9 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
 
   let lastArtworkUrl = '';
   let currentPalette = { primary: [255, 45, 85], secondary: [90, 60, 200] };
+  let lastPublishedThemeSig = '';
 
-  // Lyrics state (embedded inside YT Music's standard "Текст" / "Lyrics" tab)
+  // Lyrics state (embedded inside YT Music's standard Lyrics tab)
   let isLyricsViewVisible = false;
   let forcedLyricsTab = false;
   let showNativeFallback = false;
@@ -145,21 +164,31 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
   let currentLyricsKey = '';
   let lyricsData = { found: false, synced: [], plain: '' };
   let activeLineIndex = -1;
+  let lastPlaybackTime = 0;
   let syncOffsetSec = 0;
+  let userScrollPaused = false;
+  let scrollResumeTimer = null;
+  let programmaticScrollTimer = null;
+  let isProgrammaticScroll = false;
+  let copyTimer = null;
+  let isMiniPlayerOpen = false;
 
   let inlineContainerEl = null;
   let inlineBodyEl = null;
+  let resumeSyncBtnEl = null;
   let offsetLabelEl = null;
   let offsetMinusBtn = null;
   let offsetPlusBtn = null;
   let offsetResetBtn = null;
+  let copyLyricsBtn = null;
   let nativeToggleBtn = null;
   let lineElements = [];
   let lyricsToggleBtn = null;
+  let miniPlayerToggleBtn = null;
   let settingsBtn = null;
-  let hookedTabs = new WeakSet();
+  const hookedTabs = new WeakSet();
 
-  // ---- 1. Adaptive Ambient Background ----
+  // ---- 1. Adaptive Ambient Background & Global Injected Styles ----
   function ensureAmbientElements() {
     if (!document.head || !document.body) return;
 
@@ -168,9 +197,10 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       style.id = 'ytmc-ambient-style';
       style.textContent = `
         :root {
-          --ytmc-c1: rgba(255, 45, 85, 0.22);
+          --ytmc-c1: rgba(255, 45, 85, 0.24);
           --ytmc-c2: rgba(90, 60, 200, 0.20);
           --ytmc-accent: rgb(255, 45, 85);
+          --ytmc-accent-soft: rgba(255, 45, 85, 0.16);
         }
         #ytmc-ambient-bg {
           position: fixed;
@@ -179,58 +209,218 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
           pointer-events: none;
           mix-blend-mode: screen;
           background:
-            radial-gradient(circle at 18% 22%, var(--ytmc-c1) 0%, transparent 56%),
-            radial-gradient(circle at 82% 76%, var(--ytmc-c2) 0%, transparent 58%);
-          transition: opacity 0.6s ease;
+            radial-gradient(circle at 16% 20%, var(--ytmc-c1) 0%, transparent 54%),
+            radial-gradient(circle at 84% 78%, var(--ytmc-c2) 0%, transparent 58%);
+          transition: opacity 0.65s ease;
           opacity: 0;
         }
         #ytmc-ambient-bg.ytmc-active {
           opacity: 1;
         }
         body.ytmc-ambient-on ytmusic-player-bar {
-          background: linear-gradient(90deg, rgba(24,24,24,0.92), rgba(28,28,32,0.94)) !important;
-          border-top: 1px solid rgba(255,255,255,0.12) !important;
-          box-shadow: 0 -6px 28px var(--ytmc-c1) !important;
+          background: linear-gradient(90deg, rgba(20, 20, 24, 0.94), rgba(26, 26, 32, 0.95)) !important;
+          border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
+          box-shadow: 0 -6px 30px var(--ytmc-c1) !important;
           transition: box-shadow 1s ease;
         }
         .ytmc-bar-btn {
           width: 36px;
           height: 36px;
           border-radius: 50%;
-          border: none;
+          border: 1px solid transparent;
           background: transparent;
-          color: #aaaaaa;
+          color: #b0b0b6;
           display: inline-flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
           margin-left: 4px;
-          transition: background 0.15s ease, color 0.15s ease;
+          padding: 0;
+          transition: background 0.16s ease, color 0.16s ease, transform 0.12s ease, border-color 0.16s ease;
         }
         .ytmc-bar-btn:hover {
-          background: rgba(255,255,255,0.1);
+          background: rgba(255, 255, 255, 0.11);
           color: #ffffff;
+        }
+        .ytmc-bar-btn:active {
+          transform: scale(0.92);
         }
         .ytmc-bar-btn.ytmc-btn-active {
           color: var(--ytmc-accent);
-          background: rgba(255,255,255,0.1);
+          background: var(--ytmc-accent-soft);
+          border-color: rgba(255, 255, 255, 0.14);
         }
         #ytmc-inline-lyrics {
+          position: relative;
           display: none;
           flex-direction: column;
           flex: 1 1 auto;
           min-height: 0;
           height: 100%;
           overflow: hidden;
-          font-family: Roboto, Segoe UI, sans-serif;
-          color: #f1f1f1;
+          font-family: "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
+          color: #f4f4f6;
+        }
+        .ytmc-lyrics-toolbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding: 10px 8px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+          background: rgba(16, 16, 20, 0.45);
+          backdrop-filter: blur(10px);
+          border-radius: 10px 10px 0 0;
+        }
+        .ytmc-lyrics-stepper {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 3px;
+          border-radius: 9px;
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .ytmc-lyrics-sync-label {
+          font-size: 11.5px;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.78);
+          padding: 0 6px;
+          font-variant-numeric: tabular-nums;
+        }
+        .ytmc-pill-btn {
+          background: rgba(255, 255, 255, 0.08);
+          color: #ececef;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 7px;
+          padding: 4px 9px;
+          font-size: 11.5px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+        }
+        .ytmc-pill-btn:hover {
+          background: rgba(255, 255, 255, 0.16);
+          color: #ffffff;
+        }
+        .ytmc-pill-btn:active {
+          transform: scale(0.95);
+        }
+        .ytmc-pill-btn.ytmc-pill-accent {
+          background: var(--ytmc-accent-soft);
+          border-color: var(--ytmc-accent);
+          color: #ffffff;
+        }
+        .ytmc-pill-btn.ytmc-pill-success {
+          background: rgba(34, 197, 94, 0.18);
+          border-color: rgba(34, 197, 94, 0.5);
+          color: #86efac;
+        }
+        #ytmc-inline-lyrics-body {
+          position: relative;
+          flex: 1 1 auto;
+          overflow-y: auto;
+          padding: 16px 8px 56px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          scroll-behavior: smooth;
         }
         #ytmc-inline-lyrics-body::-webkit-scrollbar {
           width: 6px;
         }
         #ytmc-inline-lyrics-body::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.2);
-          border-radius: 3px;
+          border-radius: 999px;
+        }
+        #ytmc-inline-lyrics-body::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.34);
+        }
+        .ytmc-lyrics-badge {
+          font-size: 11.5px;
+          color: rgba(255, 255, 255, 0.56);
+          margin-bottom: 8px;
+          padding: 4px 10px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          align-self: flex-start;
+        }
+        .ytmc-lyric-line {
+          font-size: 18px;
+          line-height: 1.48;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.46);
+          padding: 8px 12px;
+          border-radius: 10px;
+          border-left: 3px solid transparent;
+          cursor: pointer;
+          transform-origin: left center;
+          transition: color 0.22s ease, transform 0.22s ease, background 0.22s ease, border-color 0.22s ease;
+        }
+        .ytmc-lyric-line:hover {
+          background: rgba(255, 255, 255, 0.06);
+          color: rgba(255, 255, 255, 0.85);
+        }
+        .ytmc-lyric-line.ytmc-lyric-past {
+          color: rgba(255, 255, 255, 0.30);
+        }
+        .ytmc-lyric-line.ytmc-lyric-active {
+          color: #ffffff;
+          font-weight: 700;
+          background: rgba(255, 255, 255, 0.09);
+          border-left-color: var(--ytmc-accent);
+          transform: scale(1.015);
+          text-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+        }
+        .ytmc-skeleton-line {
+          height: 20px;
+          border-radius: 8px;
+          background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.05) 75%);
+          background-size: 200% 100%;
+          animation: ytmcShimmer 1.4s infinite linear;
+          margin-bottom: 10px;
+        }
+        @keyframes ytmcShimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        .ytmc-lyrics-state-card {
+          margin-top: 28px;
+          padding: 20px 18px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 12px;
+        }
+        #ytmc-resume-sync {
+          position: absolute;
+          left: 50%;
+          bottom: 14px;
+          transform: translateX(-50%);
+          z-index: 5;
+          display: none;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 14px;
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          background: rgba(20, 20, 26, 0.92);
+          backdrop-filter: blur(12px);
+          color: #ffffff;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+          transition: transform 0.15s ease, background 0.15s ease;
+        }
+        #ytmc-resume-sync:hover {
+          background: rgba(34, 34, 42, 0.96);
+          transform: translateX(-50%) translateY(-1px);
         }
       `;
       document.head.appendChild(style);
@@ -241,11 +431,11 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       bg = document.createElement('div');
       bg.id = 'ytmc-ambient-bg';
       document.body.appendChild(bg);
+      applyAmbientColors(true);
     }
-    applyAmbientColors();
   }
 
-  function applyAmbientColors() {
+  function applyAmbientColors(forceBroadcast = false) {
     const bg = document.getElementById('ytmc-ambient-bg');
     const root = document.documentElement;
     if (!root) return;
@@ -253,6 +443,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     root.style.setProperty('--ytmc-c1', rgbToCss(currentPalette.primary, 0.25));
     root.style.setProperty('--ytmc-c2', rgbToCss(currentPalette.secondary, 0.22));
     root.style.setProperty('--ytmc-accent', rgbToCss(currentPalette.primary, 1));
+    root.style.setProperty('--ytmc-accent-soft', rgbToCss(currentPalette.primary, 0.18));
 
     if (bg) {
       bg.classList.toggle('ytmc-active', Boolean(settings.ambientThemeEnabled));
@@ -261,24 +452,32 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       document.body.classList.toggle('ytmc-ambient-on', Boolean(settings.ambientThemeEnabled));
     }
 
-    postToPage('visualizer-theme', {
-      primary: currentPalette.primary,
-      secondary: currentPalette.secondary,
-    });
-    ipcRenderer.send('player:theme-changed', currentPalette);
+    const sig = `${Boolean(settings.ambientThemeEnabled)}:${currentPalette.primary.join(',')}:${currentPalette.secondary.join(',')}`;
+    if (forceBroadcast || sig !== lastPublishedThemeSig) {
+      lastPublishedThemeSig = sig;
+      postToPage('visualizer-theme', {
+        primary: currentPalette.primary,
+        secondary: currentPalette.secondary,
+      });
+      ipcRenderer.send('player:theme-changed', currentPalette);
+    }
   }
 
   async function updateArtworkColors(artworkUrl) {
     if (!artworkUrl || artworkUrl === lastArtworkUrl) return;
-    lastArtworkUrl = artworkUrl;
-
-    const dataUrl = await ipcRenderer.invoke('artwork:fetch-data-url', artworkUrl);
-    if (!dataUrl) return;
-    currentPalette = await extractPaletteFromDataUrl(dataUrl);
-    applyAmbientColors();
+    try {
+      const dataUrl = await ipcRenderer.invoke('artwork:fetch-data-url', artworkUrl);
+      if (!dataUrl || artworkUrl !== currentTrack.artworkUrl) return;
+      lastArtworkUrl = artworkUrl;
+      currentPalette = await extractPaletteFromDataUrl(dataUrl);
+      if (artworkUrl !== currentTrack.artworkUrl) return;
+      applyAmbientColors();
+    } catch {
+      // Ignore transient artwork errors
+    }
   }
 
-  // ---- 2. Synced Lyrics inside Standard "Текст" / "Lyrics" Tab ----
+  // ---- 2. Synced Lyrics inside Standard Lyrics Tab ----
   function getPlayerPageContext() {
     const playerPage = document.querySelector('ytmusic-player-page');
     if (!playerPage) return null;
@@ -287,8 +486,51 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     const tabsEl = sidePanel.querySelector('tp-yt-paper-tabs');
     const tabs = tabsEl ? Array.from(tabsEl.querySelectorAll('tp-yt-paper-tab')) : [];
     const lyricsTab = tabs[1] || null;
-    const tabRenderer = sidePanel.querySelector('ytmusic-tab-renderer, #tab-renderer');
-    return { playerPage, sidePanel, tabsEl, tabs, lyricsTab, tabRenderer };
+    const tabRenderer = sidePanel.querySelector('#tab-renderer, tp-yt-iron-pages, iron-pages, ytmusic-tab-renderer');
+    const allNativePanels = Array.from(
+      sidePanel.querySelectorAll('#tab-renderer, tp-yt-iron-pages, iron-pages, ytmusic-tab-renderer')
+    ).filter((el) => !el.closest('#ytmc-inline-lyrics'));
+    return { playerPage, sidePanel, tabsEl, tabs, lyricsTab, tabRenderer, allNativePanels };
+  }
+
+  function updateOffsetResetState() {
+    if (offsetResetBtn) {
+      offsetResetBtn.classList.toggle('ytmc-pill-accent', Math.abs(syncOffsetSec) > 0.01);
+    }
+  }
+
+  function pauseAutoScrollTemporarily() {
+    userScrollPaused = true;
+    if (resumeSyncBtnEl && isLyricsViewVisible && lyricsData.synced && lyricsData.synced.length > 0) {
+      resumeSyncBtnEl.style.display = 'inline-flex';
+    }
+    clearTimeout(scrollResumeTimer);
+    scrollResumeTimer = setTimeout(() => {
+      userScrollPaused = false;
+      if (resumeSyncBtnEl) resumeSyncBtnEl.style.display = 'none';
+      if (activeLineIndex >= 0 && lineElements[activeLineIndex]) {
+        scrollToActiveLine(lineElements[activeLineIndex]);
+      }
+    }, 6500);
+  }
+
+  function scrollToActiveLine(el) {
+    if (!el || !inlineBodyEl) return;
+    isProgrammaticScroll = true;
+    clearTimeout(programmaticScrollTimer);
+    const targetTop = el.offsetTop - inlineBodyEl.clientHeight * 0.42 + el.clientHeight / 2;
+    inlineBodyEl.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    programmaticScrollTimer = setTimeout(() => {
+      isProgrammaticScroll = false;
+      programmaticScrollTimer = null;
+    }, 900);
+  }
+
+  function getCopyableLyricsText() {
+    if (lyricsData.synced && lyricsData.synced.length > 0) {
+      return lyricsData.synced.map((item) => item.text).filter(Boolean).join('\n');
+    }
+    return lyricsData.plain || '';
   }
 
   function ensureInlineLyricsContainer(ctx) {
@@ -298,40 +540,19 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       inlineContainerEl = document.createElement('div');
       inlineContainerEl.id = 'ytmc-inline-lyrics';
 
-      // Toolbar row at top of the Lyrics tab
       const syncBar = document.createElement('div');
-      Object.assign(syncBar.style, {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '6px',
-        padding: '10px 4px',
-        fontSize: '12px',
-        color: '#a3a3a3',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-      });
+      syncBar.className = 'ytmc-lyrics-toolbar';
 
       const t = getLyricsStrings();
 
-      offsetLabelEl = document.createElement('span');
-      offsetLabelEl.textContent = formatSyncOffset();
-
-      const controls = document.createElement('div');
-      Object.assign(controls.style, { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' });
+      const stepper = document.createElement('div');
+      stepper.className = 'ytmc-lyrics-stepper';
 
       const makeMiniBtn = (txt, fn) => {
         const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ytmc-pill-btn';
         b.textContent = txt;
-        Object.assign(b.style, {
-          background: 'rgba(255,255,255,0.08)',
-          color: '#e5e5e5',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: '6px',
-          padding: '3px 8px',
-          fontSize: '11.5px',
-          cursor: 'pointer',
-        });
         b.addEventListener('click', fn);
         return b;
       };
@@ -339,43 +560,102 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       offsetMinusBtn = makeMiniBtn(t.minusHalf, () => {
         syncOffsetSec = Number((syncOffsetSec - 0.5).toFixed(1));
         offsetLabelEl.textContent = formatSyncOffset();
+        updateOffsetResetState();
+        updateLyricsPlaybackTime(lastPlaybackTime, true);
       });
-      controls.appendChild(offsetMinusBtn);
+      stepper.appendChild(offsetMinusBtn);
+
+      offsetLabelEl = document.createElement('span');
+      offsetLabelEl.className = 'ytmc-lyrics-sync-label';
+      offsetLabelEl.textContent = formatSyncOffset();
+      stepper.appendChild(offsetLabelEl);
 
       offsetPlusBtn = makeMiniBtn(t.plusHalf, () => {
         syncOffsetSec = Number((syncOffsetSec + 0.5).toFixed(1));
         offsetLabelEl.textContent = formatSyncOffset();
+        updateOffsetResetState();
+        updateLyricsPlaybackTime(lastPlaybackTime, true);
       });
-      controls.appendChild(offsetPlusBtn);
+      stepper.appendChild(offsetPlusBtn);
 
       offsetResetBtn = makeMiniBtn(t.reset, () => {
         syncOffsetSec = 0;
         offsetLabelEl.textContent = formatSyncOffset();
+        updateOffsetResetState();
+        updateLyricsPlaybackTime(lastPlaybackTime, true);
       });
-      controls.appendChild(offsetResetBtn);
+      stepper.appendChild(offsetResetBtn);
+
+      const rightControls = document.createElement('div');
+      Object.assign(rightControls.style, { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' });
+
+      copyLyricsBtn = makeMiniBtn(t.copyBtn, async () => {
+        const txt = getCopyableLyricsText();
+        if (!txt) return;
+        try {
+          await navigator.clipboard.writeText(txt);
+          const curT = getLyricsStrings();
+          copyLyricsBtn.textContent = curT.copiedBtn;
+          copyLyricsBtn.classList.add('ytmc-pill-success');
+          clearTimeout(copyTimer);
+          copyTimer = setTimeout(() => {
+            if (copyLyricsBtn) {
+              copyLyricsBtn.textContent = getLyricsStrings().copyBtn;
+              copyLyricsBtn.classList.remove('ytmc-pill-success');
+            }
+          }, 1800);
+        } catch {
+          // Ignore clipboard permissions error
+        }
+      });
+      rightControls.appendChild(copyLyricsBtn);
 
       nativeToggleBtn = makeMiniBtn(t.nativeBtn, () => {
         showNativeFallback = true;
         syncInlineLyricsState();
       });
-      controls.appendChild(nativeToggleBtn);
+      rightControls.appendChild(nativeToggleBtn);
 
-      syncBar.appendChild(offsetLabelEl);
-      syncBar.appendChild(controls);
+      syncBar.appendChild(stepper);
+      syncBar.appendChild(rightControls);
       inlineContainerEl.appendChild(syncBar);
 
       inlineBodyEl = document.createElement('div');
       inlineBodyEl.id = 'ytmc-inline-lyrics-body';
-      Object.assign(inlineBodyEl.style, {
-        flex: '1 1 auto',
-        overflowY: 'auto',
-        padding: '18px 6px 42px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px',
-        scrollBehavior: 'smooth',
-      });
+      const handleUserScrollIntent = () => {
+        clearTimeout(programmaticScrollTimer);
+        programmaticScrollTimer = null;
+        isProgrammaticScroll = false;
+        pauseAutoScrollTemporarily();
+      };
+      inlineBodyEl.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+      inlineBodyEl.addEventListener('touchstart', handleUserScrollIntent, { passive: true });
+      inlineBodyEl.addEventListener('pointerdown', handleUserScrollIntent, { passive: true });
+      inlineBodyEl.addEventListener('scrollend', () => {
+        clearTimeout(programmaticScrollTimer);
+        programmaticScrollTimer = null;
+        isProgrammaticScroll = false;
+      }, { passive: true });
+      inlineBodyEl.addEventListener('scroll', () => {
+        if (!isProgrammaticScroll && isLyricsViewVisible && lyricsData.synced && lyricsData.synced.length > 0) {
+          pauseAutoScrollTemporarily();
+        }
+      }, { passive: true });
       inlineContainerEl.appendChild(inlineBodyEl);
+
+      resumeSyncBtnEl = document.createElement('button');
+      resumeSyncBtnEl.id = 'ytmc-resume-sync';
+      resumeSyncBtnEl.type = 'button';
+      resumeSyncBtnEl.textContent = t.resumeSyncBtn;
+      resumeSyncBtnEl.addEventListener('click', () => {
+        clearTimeout(scrollResumeTimer);
+        userScrollPaused = false;
+        resumeSyncBtnEl.style.display = 'none';
+        if (activeLineIndex >= 0 && lineElements[activeLineIndex]) {
+          scrollToActiveLine(lineElements[activeLineIndex]);
+        }
+      });
+      inlineContainerEl.appendChild(resumeSyncBtnEl);
 
       if (ctx.tabRenderer && ctx.tabRenderer.parentNode) {
         ctx.tabRenderer.parentNode.insertBefore(inlineContainerEl, ctx.tabRenderer.nextSibling);
@@ -396,56 +676,67 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     inlineBodyEl.replaceChildren();
     lineElements = [];
     activeLineIndex = -1;
+    userScrollPaused = false;
+    clearTimeout(scrollResumeTimer);
+    if (resumeSyncBtnEl) resumeSyncBtnEl.style.display = 'none';
     const t = getLyricsStrings();
 
+    if (copyLyricsBtn) {
+      copyLyricsBtn.style.display = getCopyableLyricsText() ? 'inline-block' : 'none';
+    }
+
     if (!currentTrack.title) {
+      const card = document.createElement('div');
+      card.className = 'ytmc-lyrics-state-card';
       const empty = document.createElement('div');
       empty.textContent = t.empty;
-      Object.assign(empty.style, { color: '#9a9a9a', fontSize: '14px', marginTop: '32px' });
-      inlineBodyEl.appendChild(empty);
+      Object.assign(empty.style, { color: 'rgba(255,255,255,0.72)', fontSize: '14px', lineHeight: '1.5' });
+      card.appendChild(empty);
+      inlineBodyEl.appendChild(card);
       return;
     }
 
     if (lyricsLoading) {
       const loading = document.createElement('div');
       loading.textContent = t.loading;
-      Object.assign(loading.style, { color: '#bdbdbd', fontSize: '14px', marginTop: '32px' });
+      Object.assign(loading.style, { color: 'rgba(255,255,255,0.75)', fontSize: '13.5px', margin: '10px 0 14px' });
       inlineBodyEl.appendChild(loading);
+      const widths = ['74%', '88%', '62%', '82%', '54%', '79%'];
+      for (const w of widths) {
+        const sk = document.createElement('div');
+        sk.className = 'ytmc-skeleton-line';
+        sk.style.width = w;
+        inlineBodyEl.appendChild(sk);
+      }
       return;
     }
 
     if (lyricsData.synced && lyricsData.synced.length > 0) {
+      const badge = document.createElement('div');
+      badge.className = 'ytmc-lyrics-badge';
+      badge.textContent = t.syncedBadge;
+      inlineBodyEl.appendChild(badge);
+
       for (const item of lyricsData.synced) {
         const lineEl = document.createElement('div');
+        lineEl.className = 'ytmc-lyric-line';
         lineEl.textContent = item.text || '♪';
-        Object.assign(lineEl.style, {
-          fontSize: '18px',
-          lineHeight: '1.5',
-          fontWeight: '600',
-          color: 'rgba(255, 255, 255, 0.38)',
-          padding: '6px 10px',
-          borderRadius: '10px',
-          cursor: 'pointer',
-          transformOrigin: 'left center',
-          transition: 'color 0.22s ease, transform 0.22s ease, background 0.22s ease',
-        });
         lineEl.addEventListener('click', () => {
+          userScrollPaused = false;
+          if (resumeSyncBtnEl) resumeSyncBtnEl.style.display = 'none';
           postToPage('player-seek', { time: item.time });
         });
         inlineBodyEl.appendChild(lineEl);
         lineElements.push(lineEl);
       }
+      updateLyricsPlaybackTime(lastPlaybackTime, true);
       return;
     }
 
     if (lyricsData.plain) {
       const badge = document.createElement('div');
+      badge.className = 'ytmc-lyrics-badge';
       badge.textContent = t.plainBadge;
-      Object.assign(badge.style, {
-        fontSize: '12px',
-        color: '#9e9e9e',
-        marginBottom: '6px',
-      });
       inlineBodyEl.appendChild(badge);
 
       for (const rawLine of lyricsData.plain.split(/\r?\n/)) {
@@ -453,24 +744,48 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
         p.textContent = rawLine || ' ';
         Object.assign(p.style, {
           fontSize: '15.5px',
-          lineHeight: '1.6',
+          lineHeight: '1.65',
           color: 'rgba(255, 255, 255, 0.88)',
           minHeight: '14px',
+          padding: '0 4px',
         });
         inlineBodyEl.appendChild(p);
       }
       return;
     }
 
+    const card = document.createElement('div');
+    card.className = 'ytmc-lyrics-state-card';
     const notFound = document.createElement('div');
     notFound.textContent = t.notFound;
     Object.assign(notFound.style, {
-      color: '#9a9a9a',
+      color: 'rgba(255,255,255,0.74)',
       fontSize: '14px',
-      marginTop: '32px',
       lineHeight: '1.5',
     });
-    inlineBodyEl.appendChild(notFound);
+    const actionsRow = document.createElement('div');
+    Object.assign(actionsRow.style, { display: 'flex', gap: '8px', flexWrap: 'wrap' });
+
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'ytmc-pill-btn ytmc-pill-accent';
+    retryBtn.textContent = t.retryBtn;
+    retryBtn.addEventListener('click', () => fetchLyricsForCurrentTrack(true));
+
+    const fallbackBtn = document.createElement('button');
+    fallbackBtn.type = 'button';
+    fallbackBtn.className = 'ytmc-pill-btn';
+    fallbackBtn.textContent = t.nativeBtn;
+    fallbackBtn.addEventListener('click', () => {
+      showNativeFallback = true;
+      syncInlineLyricsState();
+    });
+
+    actionsRow.appendChild(retryBtn);
+    actionsRow.appendChild(fallbackBtn);
+    card.appendChild(notFound);
+    card.appendChild(actionsRow);
+    inlineBodyEl.appendChild(card);
   }
 
   async function fetchLyricsForCurrentTrack(force = false) {
@@ -482,21 +797,32 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     lyricsLoading = true;
     if (isLyricsViewVisible) renderLyricsContent();
 
-    const result = await ipcRenderer.invoke('lyrics:fetch', {
-      title: currentTrack.title,
-      artist: currentTrack.artist,
-      duration: currentTrack.duration,
-    });
+    try {
+      const result = await ipcRenderer.invoke('lyrics:fetch', {
+        title: currentTrack.title,
+        artist: currentTrack.artist,
+        duration: currentTrack.duration,
+      });
 
-    if (key !== currentLyricsKey) return;
-    lyricsLoading = false;
-    lyricsData = result || { found: false, synced: [], plain: '' };
-    if (isLyricsViewVisible) renderLyricsContent();
+      if (key !== currentLyricsKey) return;
+      lyricsData = result || { found: false, synced: [], plain: '' };
+    } catch {
+      if (key !== currentLyricsKey) return;
+      lyricsData = { found: false, synced: [], plain: '' };
+    } finally {
+      if (key === currentLyricsKey) {
+        lyricsLoading = false;
+        if (isLyricsViewVisible) renderLyricsContent();
+      }
+    }
   }
 
-  function updateLyricsPlaybackTime(currentTime) {
+  function updateLyricsPlaybackTime(currentTime, forceScroll = false) {
+    if (Number.isFinite(currentTime)) {
+      lastPlaybackTime = currentTime;
+    }
     if (!isLyricsViewVisible || !lyricsData.synced || lyricsData.synced.length === 0) return;
-    const t = currentTime + syncOffsetSec;
+    const t = lastPlaybackTime + syncOffsetSec;
 
     let idx = -1;
     for (let i = 0; i < lyricsData.synced.length; i += 1) {
@@ -507,31 +833,23 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       }
     }
 
-    if (idx === activeLineIndex) return;
-
-    if (activeLineIndex >= 0 && lineElements[activeLineIndex]) {
-      const prevEl = lineElements[activeLineIndex];
-      prevEl.style.color = 'rgba(255, 255, 255, 0.38)';
-      prevEl.style.fontWeight = '600';
-      prevEl.style.background = 'transparent';
-      prevEl.style.transform = 'scale(1)';
-    }
+    if (idx === activeLineIndex && !forceScroll) return;
 
     activeLineIndex = idx;
-    if (idx >= 0 && lineElements[idx]) {
-      const el = lineElements[idx];
-      el.style.color = '#ffffff';
-      el.style.fontWeight = '700';
-      el.style.background = 'rgba(255, 255, 255, 0.08)';
-      el.style.transform = 'scale(1.02)';
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    for (let i = 0; i < lineElements.length; i += 1) {
+      const el = lineElements[i];
+      el.classList.toggle('ytmc-lyric-active', i === idx);
+      el.classList.toggle('ytmc-lyric-past', idx >= 0 && i < idx);
+    }
+
+    if (idx >= 0 && lineElements[idx] && (!userScrollPaused || forceScroll)) {
+      scrollToActiveLine(lineElements[idx]);
     }
   }
 
   function hookTabInteractions(ctx) {
     if (!ctx || !ctx.tabs || ctx.tabs.length < 2) return;
 
-    // Make sure the "Текст" / "Lyrics" tab stays clickable even if YT Music disables it
     const lyricsTab = ctx.lyricsTab;
     if (settings.lyricsEnabled && lyricsTab) {
       if (lyricsTab.hasAttribute('disabled')) {
@@ -558,7 +876,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
             try {
               ctx.tabsEl.selected = 1;
             } catch {
-              // Ignore if Polymer blocks selection on disabled tab
+              // Ignore if Polymer blocks selection
             }
           }
           setTimeout(syncInlineLyricsState, 30);
@@ -613,23 +931,22 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       inlineContainerEl.style.display = shouldShowInline ? 'flex' : 'none';
     }
 
+    for (const panel of ctx.allNativePanels) {
+      panel.style.display = shouldShowInline ? 'none' : '';
+    }
+
     if (ctx.tabRenderer) {
-      ctx.tabRenderer.style.display = shouldShowInline ? 'none' : '';
       let backBanner = document.getElementById('ytmc-back-to-synced');
       if (lyricsTabActive && showNativeFallback) {
         if (!backBanner) {
           backBanner = document.createElement('button');
           backBanner.id = 'ytmc-back-to-synced';
+          backBanner.type = 'button';
+          backBanner.className = 'ytmc-pill-btn ytmc-pill-accent';
           backBanner.textContent = getLyricsStrings().backToSynced;
           Object.assign(backBanner.style, {
             margin: '8px 0',
             padding: '6px 12px',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.16)',
-            background: 'rgba(255,255,255,0.08)',
-            color: '#f1f1f1',
-            fontSize: '12px',
-            cursor: 'pointer',
             alignSelf: 'flex-start',
           });
           backBanner.addEventListener('click', () => {
@@ -646,6 +963,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
 
     if (lyricsToggleBtn) {
       lyricsToggleBtn.classList.toggle('ytmc-btn-active', shouldShowInline);
+      lyricsToggleBtn.setAttribute('aria-pressed', shouldShowInline ? 'true' : 'false');
     }
 
     if (shouldShowInline && !wasVisible) {
@@ -675,8 +993,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       return;
     }
 
-    const currentlyLyrics = isLyricsViewVisible;
-    if (currentlyLyrics && ctx.tabs[0]) {
+    if (isLyricsViewVisible && ctx.tabs[0]) {
       forcedLyricsTab = false;
       ctx.tabs[0].click();
       syncInlineLyricsState();
@@ -694,11 +1011,34 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     if (!rightControls) return;
     const t = getLyricsStrings();
 
+    if (!document.getElementById('ytmc-miniplayer-btn') && typeof onToggleMiniPlayer === 'function') {
+      const mpBtn = document.createElement('button');
+      mpBtn.id = 'ytmc-miniplayer-btn';
+      mpBtn.type = 'button';
+      mpBtn.className = 'ytmc-bar-btn';
+      mpBtn.title = t.miniPlayerBtnTooltip;
+      mpBtn.setAttribute('aria-label', t.miniPlayerBtnTooltip);
+      mpBtn.setAttribute('aria-pressed', isMiniPlayerOpen ? 'true' : 'false');
+      mpBtn.appendChild(
+        createSvgIcon([
+          'M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z',
+        ])
+      );
+      mpBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onToggleMiniPlayer();
+      });
+      rightControls.prepend(mpBtn);
+      miniPlayerToggleBtn = mpBtn;
+    }
+
     if (!document.getElementById('ytmc-lyrics-btn')) {
       const btn = document.createElement('button');
       btn.id = 'ytmc-lyrics-btn';
+      btn.type = 'button';
       btn.className = 'ytmc-bar-btn';
       btn.title = t.lyricsBtnTooltip;
+      btn.setAttribute('aria-label', t.lyricsBtnTooltip);
       btn.appendChild(
         createSvgIcon([
           'M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
@@ -715,8 +1055,10 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     if (!document.getElementById('ytmc-settings-btn')) {
       const gearBtn = document.createElement('button');
       gearBtn.id = 'ytmc-settings-btn';
+      gearBtn.type = 'button';
       gearBtn.className = 'ytmc-bar-btn';
       gearBtn.title = t.settingsBtnTooltip;
+      gearBtn.setAttribute('aria-label', t.settingsBtnTooltip);
       gearBtn.appendChild(
         createSvgIcon([
           'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z',
@@ -734,6 +1076,18 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       lyricsToggleBtn.style.display = settings.lyricsEnabled ? 'inline-flex' : 'none';
       lyricsToggleBtn.classList.toggle('ytmc-btn-active', isLyricsViewVisible);
     }
+    if (miniPlayerToggleBtn) {
+      miniPlayerToggleBtn.classList.toggle('ytmc-btn-active', isMiniPlayerOpen);
+      miniPlayerToggleBtn.setAttribute('aria-pressed', isMiniPlayerOpen ? 'true' : 'false');
+    }
+  }
+
+  function setMiniPlayerVisible(visible) {
+    isMiniPlayerOpen = Boolean(visible);
+    if (miniPlayerToggleBtn) {
+      miniPlayerToggleBtn.classList.toggle('ytmc-btn-active', isMiniPlayerOpen);
+      miniPlayerToggleBtn.setAttribute('aria-pressed', isMiniPlayerOpen ? 'true' : 'false');
+    }
   }
 
   function applySettings(newSettings) {
@@ -743,23 +1097,39 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     ensureAmbientElements();
     applyAmbientColors();
     ensurePlayerBarButtons();
+
+    if (settings.ambientThemeEnabled && currentTrack.artworkUrl && currentTrack.artworkUrl !== lastArtworkUrl) {
+      updateArtworkColors(currentTrack.artworkUrl);
+    }
+
     if (!settings.lyricsEnabled) {
       forcedLyricsTab = false;
     }
+
     if (prevLang !== nextLang) {
       const t = getLyricsStrings();
       if (offsetLabelEl) offsetLabelEl.textContent = formatSyncOffset();
       if (offsetMinusBtn) offsetMinusBtn.textContent = t.minusHalf;
       if (offsetPlusBtn) offsetPlusBtn.textContent = t.plusHalf;
       if (offsetResetBtn) offsetResetBtn.textContent = t.reset;
+      if (copyLyricsBtn) copyLyricsBtn.textContent = t.copyBtn;
       if (nativeToggleBtn) nativeToggleBtn.textContent = t.nativeBtn;
+      if (resumeSyncBtnEl) resumeSyncBtnEl.textContent = t.resumeSyncBtn;
       const backBanner = document.getElementById('ytmc-back-to-synced');
       if (backBanner) backBanner.textContent = t.backToSynced;
-      if (lyricsToggleBtn) lyricsToggleBtn.title = t.lyricsBtnTooltip;
-      if (settingsBtn) settingsBtn.title = t.settingsBtnTooltip;
-      if (!currentTrack.title || lyricsLoading || !lyricsData.synced || lyricsData.synced.length === 0) {
-        renderLyricsContent();
+      if (lyricsToggleBtn) {
+        lyricsToggleBtn.title = t.lyricsBtnTooltip;
+        lyricsToggleBtn.setAttribute('aria-label', t.lyricsBtnTooltip);
       }
+      if (miniPlayerToggleBtn) {
+        miniPlayerToggleBtn.title = t.miniPlayerBtnTooltip;
+        miniPlayerToggleBtn.setAttribute('aria-label', t.miniPlayerBtnTooltip);
+      }
+      if (settingsBtn) {
+        settingsBtn.title = t.settingsBtnTooltip;
+        settingsBtn.setAttribute('aria-label', t.settingsBtnTooltip);
+      }
+      renderLyricsContent();
     }
     syncInlineLyricsState();
   }
@@ -782,7 +1152,18 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
 
     if (nextKey !== prevKey) {
       syncOffsetSec = 0;
+      activeLineIndex = -1;
+      lastPlaybackTime = 0;
+      currentLyricsKey = '';
+      lyricsLoading = false;
+      userScrollPaused = false;
+      clearTimeout(scrollResumeTimer);
+      clearTimeout(programmaticScrollTimer);
+      programmaticScrollTimer = null;
+      isProgrammaticScroll = false;
+      if (resumeSyncBtnEl) resumeSyncBtnEl.style.display = 'none';
       if (offsetLabelEl) offsetLabelEl.textContent = formatSyncOffset();
+      updateOffsetResetState();
       lyricsData = { found: false, synced: [], plain: '' };
       if (isLyricsViewVisible) {
         fetchLyricsForCurrentTrack(true);
@@ -790,15 +1171,52 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     }
   }
 
+  let uiSyncTimer = null;
+  function scheduleUiSync() {
+    if (uiSyncTimer !== null) return;
+    uiSyncTimer = setTimeout(() => {
+      uiSyncTimer = null;
+      ensureAmbientElements();
+      ensurePlayerBarButtons();
+      syncInlineLyricsState();
+    }, 150);
+  }
+
   function initDomObservers() {
     ensureAmbientElements();
     ensurePlayerBarButtons();
     syncInlineLyricsState();
+
+    const observer = new MutationObserver((mutations) => {
+      for (let i = 0; i < mutations.length; i += 1) {
+        const target = mutations[i].target;
+        if (target && target.nodeType === 1 && target.closest && target.closest('#ytmc-inline-lyrics, #ytmc-settings-overlay, #ytmc-ambient-bg')) {
+          continue;
+        }
+        if (
+          !document.getElementById('ytmc-settings-btn') ||
+          !document.getElementById('ytmc-ambient-bg') ||
+          (target && target.closest && target.closest('ytmusic-player-page #side-panel'))
+        ) {
+          scheduleUiSync();
+          break;
+        }
+      }
+    });
+
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // Slow self-healing check in case Polymer replaces nodes cleanly without matching above
     setInterval(() => {
-      ensureAmbientElements();
-      ensurePlayerBarButtons();
+      if (document.hidden) return;
+      if (!document.getElementById('ytmc-settings-btn') || !document.getElementById('ytmc-ambient-bg')) {
+        ensureAmbientElements();
+        ensurePlayerBarButtons();
+      }
       syncInlineLyricsState();
-    }, 600);
+    }, 2500);
   }
 
   if (document.readyState === 'loading') {
@@ -811,6 +1229,8 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     applySettings,
     handlePlayerState,
     updateLyricsPlaybackTime,
+    setMiniPlayerVisible,
+    syncThemeToPage: () => applyAmbientColors(true),
     toggleLyricsDrawer: openOrToggleLyricsTab,
   };
 }

@@ -1,3 +1,5 @@
+const { matchesDomain, isAuthHost } = require('../shared/auth-hosts');
+
 const AD_HOSTS = [
   'doubleclick.net',
   'googlesyndication.com',
@@ -29,14 +31,14 @@ function isAdOrTrackingUrl(rawUrl) {
 
   const host = parsed.hostname.toLowerCase();
   for (const adHost of AD_HOSTS) {
-    if (host === adHost || host.endsWith('.' + adHost)) {
+    if (matchesDomain(host, adHost)) {
       return true;
     }
   }
 
   if (
-    host.endsWith('youtube.com') ||
-    host.endsWith('youtu.be') ||
+    matchesDomain(host, 'youtube.com') ||
+    matchesDomain(host, 'youtu.be') ||
     host === 'play.google.com'
   ) {
     for (const pattern of AD_PATH_PATTERNS) {
@@ -49,49 +51,44 @@ function isAdOrTrackingUrl(rawUrl) {
   return false;
 }
 
-const AUTH_HOSTS = new Set([
-  'accounts.google.com',
-  'accounts.youtube.com',
-  'gds.google.com',
-  'myaccount.google.com',
-  'signin.google.com',
-]);
-
 function isAuthOrigin(rawUrl) {
   if (!rawUrl) return false;
   try {
-    return AUTH_HOSTS.has(new URL(rawUrl).hostname.toLowerCase());
+    return isAuthHost(new URL(rawUrl).hostname);
   } catch {
     return false;
   }
 }
 
 function setupNetworkAdBlocker(targetSession, settings, onBlocked) {
-  targetSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
-    if (!settings.get('adBlockEnabled')) {
-      callback({ cancel: false });
-      return;
-    }
-
-    if (
-      isAuthOrigin(details.url) ||
-      isAuthOrigin(details.initiator) ||
-      isAuthOrigin(details.referrer)
-    ) {
-      callback({ cancel: false });
-      return;
-    }
-
-    if (isAdOrTrackingUrl(details.url)) {
-      if (typeof onBlocked === 'function') {
-        onBlocked(details.url);
+  targetSession.webRequest.onBeforeRequest(
+    { urls: ['http://*/*', 'https://*/*'] },
+    (details, callback) => {
+      if (!settings.get('adBlockEnabled')) {
+        callback({ cancel: false });
+        return;
       }
-      callback({ cancel: true });
-      return;
-    }
 
-    callback({ cancel: false });
-  });
+      if (
+        isAuthOrigin(details.url) ||
+        isAuthOrigin(details.initiator) ||
+        isAuthOrigin(details.referrer)
+      ) {
+        callback({ cancel: false });
+        return;
+      }
+
+      if (isAdOrTrackingUrl(details.url)) {
+        if (typeof onBlocked === 'function') {
+          onBlocked(details.url);
+        }
+        callback({ cancel: true });
+        return;
+      }
+
+      callback({ cancel: false });
+    }
+  );
 }
 
 module.exports = { setupNetworkAdBlocker, isAdOrTrackingUrl };
