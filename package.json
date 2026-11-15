@@ -1,0 +1,65 @@
+{
+  "name": "yt-music-client",
+  "version": "1.1.0",
+  "description": "Desktop client for YouTube Music with AdBlock, SponsorBlock, System Tray, and Global Media Keys",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "shortcut:desktop": "powershell -ExecutionPolicy Bypass -File scripts/create-shortcut.ps1 -Desktop",
+    "pack": "electron-builder --dir",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.ytmusicclient.desktop",
+    "productName": "YouTube Music Client",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "YTMusicClient-${version}-portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "YouTube Music Client",
+      "artifactName": "YTMusicClient-${version}-setup.exe"
+    }
+  },
+  "keywords": [
+    "youtube-music",
+    "electron",
+    "desktop",
+    "music-player"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^35.1.2",
+    "electron-builder": "^26.18.0"
+  }
+}
