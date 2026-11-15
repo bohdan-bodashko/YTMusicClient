@@ -3,6 +3,7 @@ const path = require('path');
 const { app } = require('electron');
 
 const DEFAULT_SETTINGS = {
+  language: 'auto',
   adBlockEnabled: true,
   sponsorBlockEnabled: true,
   sponsorBlockCategories: ['music_offtopic', 'sponsor', 'selfpromo', 'interaction'],

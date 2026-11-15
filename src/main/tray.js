@@ -1,8 +1,19 @@
 const path = require('path');
-const { Tray, Menu, nativeImage, dialog } = require('electron');
+const { app, Tray, Menu, nativeImage, dialog } = require('electron');
+const { resolveLanguage, getTranslations, formatText } = require('../shared/i18n');
 
 class TrayManager {
-  constructor({ settings, onToggleWindow, onToggleMiniPlayer, onPlayerCommand, onToggleLyrics, onOpenAuthSettings, onClearGoogleAuth, onReload, onQuit }) {
+  constructor({
+    settings,
+    onToggleWindow,
+    onToggleMiniPlayer,
+    onPlayerCommand,
+    onToggleLyrics,
+    onOpenAuthSettings,
+    onClearGoogleAuth,
+    onReload,
+    onQuit,
+  }) {
     this.settings = settings;
     this.onToggleWindow = onToggleWindow;
     this.onToggleMiniPlayer = onToggleMiniPlayer;
@@ -18,6 +29,11 @@ class TrayManager {
       title: '',
       artist: '',
     };
+  }
+
+  _t() {
+    const lang = resolveLanguage(this.settings.get('language'), app.getLocale());
+    return getTranslations(lang);
   }
 
   init() {
@@ -50,11 +66,13 @@ class TrayManager {
     if (!this.tray) return;
 
     const cfg = this.settings.getAll();
+    const tr = this._t().tray;
     const trackText = this.playerState.title
       ? `♪ ${this.playerState.title}${this.playerState.artist ? ' — ' + this.playerState.artist : ''}`
-      : '♪ Нічого не відтворюється';
+      : `♪ ${tr.nothingPlaying}`;
 
     const truncatedTrack = trackText.length > 48 ? trackText.slice(0, 45) + '...' : trackText;
+    const currentLangSetting = cfg.language || 'auto';
 
     const template = [
       {
@@ -62,93 +80,117 @@ class TrayManager {
         enabled: false,
       },
       {
-        label: 'Відкрити / Сховати головне вікно',
+        label: tr.openHideMain,
         click: () => this.onToggleWindow(),
       },
       {
-        label: 'Міні-плеєр',
+        label: tr.miniPlayer,
         click: () => this.onToggleMiniPlayer && this.onToggleMiniPlayer(this.tray.getBounds()),
       },
       { type: 'separator' },
       {
-        label: this.playerState.isPlaying ? '⏸ Пауза' : '▶ Відтворити',
+        label: this.playerState.isPlaying ? `⏸ ${tr.pause}` : `▶ ${tr.play}`,
         click: () => this.onPlayerCommand('toggle'),
       },
       {
-        label: '⏭ Наступний трек',
+        label: `⏭ ${tr.next}`,
         click: () => this.onPlayerCommand('next'),
       },
       {
-        label: '⏮ Попередній трек',
+        label: `⏮ ${tr.prev}`,
         click: () => this.onPlayerCommand('previous'),
       },
       {
-        label: '📝 Показати / сховати текст пісні',
+        label: `📝 ${tr.toggleLyrics}`,
         click: () => this.onToggleLyrics && this.onToggleLyrics(),
       },
       { type: 'separator' },
       {
-        label: 'Налаштування',
+        label: tr.settings,
         submenu: [
           {
-            label: 'Блокування реклами (AdBlock)',
+            label: tr.language,
+            submenu: [
+              {
+                label: tr.langAuto,
+                type: 'radio',
+                checked: currentLangSetting === 'auto',
+                click: () => this.settings.set('language', 'auto'),
+              },
+              {
+                label: tr.langUk,
+                type: 'radio',
+                checked: currentLangSetting === 'uk',
+                click: () => this.settings.set('language', 'uk'),
+              },
+              {
+                label: tr.langEn,
+                type: 'radio',
+                checked: currentLangSetting === 'en',
+                click: () => this.settings.set('language', 'en'),
+              },
+            ],
+          },
+          { type: 'separator' },
+          {
+            label: tr.adBlock,
             type: 'checkbox',
             checked: cfg.adBlockEnabled,
             click: (item) => this.settings.set('adBlockEnabled', item.checked),
           },
           {
-            label: 'SponsorBlock (пропуск пауз/інтро)',
+            label: tr.sponsorBlock,
             type: 'checkbox',
             checked: cfg.sponsorBlockEnabled,
             click: (item) => this.settings.set('sponsorBlockEnabled', item.checked),
           },
           { type: 'separator' },
           {
-            label: 'Адаптивний фон під обкладинку',
+            label: tr.ambientTheme,
             type: 'checkbox',
             checked: cfg.ambientThemeEnabled,
             click: (item) => this.settings.set('ambientThemeEnabled', item.checked),
           },
           {
-            label: 'Аудіовізуалізатор',
+            label: tr.visualizer,
             type: 'checkbox',
             checked: cfg.visualizerEnabled,
             click: (item) => this.settings.set('visualizerEnabled', item.checked),
           },
           {
-            label: 'Синхронізовані тексти (Ctrl+L)',
+            label: tr.lyrics,
             type: 'checkbox',
             checked: cfg.lyricsEnabled,
             click: (item) => this.settings.set('lyricsEnabled', item.checked),
           },
           { type: 'separator' },
           {
-            label: 'Глобальні медіа-клавіші',
+            label: tr.globalMediaKeys,
             type: 'checkbox',
             checked: cfg.globalMediaKeys,
             click: (item) => this.settings.set('globalMediaKeys', item.checked),
           },
           {
-            label: 'Додаткові клавіші (Ctrl+Alt+Space / ← / →)',
+            label: tr.extraHotkeys,
             type: 'checkbox',
             checked: cfg.extraHotkeys,
             click: (item) => this.settings.set('extraHotkeys', item.checked),
           },
           { type: 'separator' },
           {
-            label: 'Згортати в трей при закритті',
+            label: tr.minimizeToTray,
             type: 'checkbox',
             checked: cfg.minimizeToTray,
             click: (item) => this.settings.set('minimizeToTray', item.checked),
           },
           {
-            label: 'Завжди зверху',
+            label: tr.alwaysOnTop,
             type: 'checkbox',
             checked: cfg.alwaysOnTop,
             click: (item) => this.settings.set('alwaysOnTop', item.checked),
           },
           {
-            label: 'Автозапуск з Windows',
+            label: tr.autoLaunch,
             type: 'checkbox',
             checked: cfg.autoLaunch,
             click: (item) => this.settings.set('autoLaunch', item.checked),
@@ -156,58 +198,58 @@ class TrayManager {
         ],
       },
       {
-        label: 'Акаунт Google',
+        label: tr.googleAccount,
         submenu: [
           {
-            label: 'Режим входу: Chrome (рекомендовано)',
+            label: tr.authModeChrome,
             type: 'radio',
             checked: (cfg.authUserAgentMode || 'chrome') === 'chrome',
             click: () => this.settings.set('authUserAgentMode', 'chrome'),
           },
           {
-            label: 'Режим входу: Firefox (резервний)',
+            label: tr.authModeFirefox,
             type: 'radio',
             checked: cfg.authUserAgentMode === 'firefox',
             click: () => this.settings.set('authUserAgentMode', 'firefox'),
           },
           { type: 'separator' },
           {
-            label: 'Очистити кеш входу Google',
+            label: tr.clearAuthCache,
             click: () => this.onClearGoogleAuth && this.onClearGoogleAuth(),
           },
           {
-            label: 'Увійти через cookies з браузера...',
+            label: tr.importCookiesMenu,
             click: () => this.onOpenAuthSettings && this.onOpenAuthSettings(),
           },
         ],
       },
       {
-        label: `Статистика: ${cfg.stats?.blockedAds || 0} рекл. / ${cfg.stats?.skippedSegments || 0} сегм.`,
+        label: formatText(tr.statsLabel, {
+          ads: cfg.stats?.blockedAds || 0,
+          segments: cfg.stats?.skippedSegments || 0,
+        }),
         click: () => {
           const current = this.settings.getAll();
+          const dialogTr = this._t().tray;
           dialog.showMessageBox({
             type: 'info',
-            title: 'Статистика YouTube Music Client',
-            message: 'Статистика захисту та пропусків',
-            detail:
-              `Заблоковано рекламних запитів / роликів: ${current.stats?.blockedAds || 0}\n` +
-              `Пропущено фрагментів SponsorBlock: ${current.stats?.skippedSegments || 0}\n\n` +
-              `Підказка: натисніть Ctrl+, у вікні програми для швидких налаштувань.`,
+            title: dialogTr.statsDialogTitle,
+            message: dialogTr.statsDialogMessage,
+            detail: formatText(dialogTr.statsDialogDetail, {
+              ads: current.stats?.blockedAds || 0,
+              segments: current.stats?.skippedSegments || 0,
+            }),
             buttons: ['OK'],
           });
         },
       },
       { type: 'separator' },
       {
-        label: 'Відкрити / Сховати вікно',
-        click: () => this.onToggleWindow(),
-      },
-      {
-        label: 'Перезавантажити сторінку',
+        label: tr.reload,
         click: () => this.onReload(),
       },
       {
-        label: 'Вийти',
+        label: tr.quit,
         click: () => this.onQuit(),
       },
     ];

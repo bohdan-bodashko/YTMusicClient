@@ -141,10 +141,10 @@ function parseCookieHeader(rawInput) {
   return pairs;
 }
 
-async function importBrowserCookies(targetSession, rawCookieHeader) {
+async function importBrowserCookies(targetSession, rawCookieHeader, noCookiesMessage) {
   const pairs = parseCookieHeader(rawCookieHeader);
   if (pairs.length === 0) {
-    throw new Error('Не знайдено жодного коректного cookie у вставленому тексті.');
+    throw new Error(noCookiesMessage || 'No valid cookies found in the pasted text.');
   }
 
   const expirationDate = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365;

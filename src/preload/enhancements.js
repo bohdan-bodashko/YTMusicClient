@@ -1,4 +1,5 @@
 const { ipcRenderer } = require('electron');
+const { resolveLanguage, getTranslations, formatText } = require('../shared/i18n');
 
 function createSvgIcon(paths) {
   const ns = 'http://www.w3.org/2000/svg';
@@ -100,11 +101,30 @@ function extractPaletteFromDataUrl(dataUrl) {
 }
 
 function createEnhancementsController({ onOpenSettings, postToPage }) {
+  const systemLocale = (() => {
+    try {
+      return ipcRenderer.sendSync('i18n:get-locale-sync') || navigator.language || '';
+    } catch {
+      return navigator.language || '';
+    }
+  })();
+
   let settings = {
     ambientThemeEnabled: true,
     visualizerEnabled: true,
     lyricsEnabled: true,
+    language: 'auto',
   };
+
+  function getLyricsStrings() {
+    return getTranslations(resolveLanguage(settings.language, systemLocale)).lyrics;
+  }
+
+  function formatSyncOffset() {
+    const t = getLyricsStrings();
+    const offset = `${syncOffsetSec > 0 ? '+' : ''}${syncOffsetSec.toFixed(1)}`;
+    return formatText(t.syncLabel, { offset });
+  }
 
   let currentTrack = {
     title: '',
@@ -130,9 +150,13 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
   let inlineContainerEl = null;
   let inlineBodyEl = null;
   let offsetLabelEl = null;
+  let offsetMinusBtn = null;
+  let offsetPlusBtn = null;
+  let offsetResetBtn = null;
   let nativeToggleBtn = null;
   let lineElements = [];
   let lyricsToggleBtn = null;
+  let settingsBtn = null;
   let hookedTabs = new WeakSet();
 
   // ---- 1. Adaptive Ambient Background ----
@@ -288,8 +312,10 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
       });
 
+      const t = getLyricsStrings();
+
       offsetLabelEl = document.createElement('span');
-      offsetLabelEl.textContent = 'Синхр: 0.0с';
+      offsetLabelEl.textContent = formatSyncOffset();
 
       const controls = document.createElement('div');
       Object.assign(controls.style, { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' });
@@ -310,26 +336,25 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
         return b;
       };
 
-      controls.appendChild(
-        makeMiniBtn('-0.5с', () => {
-          syncOffsetSec = Number((syncOffsetSec - 0.5).toFixed(1));
-          offsetLabelEl.textContent = `Синхр: ${syncOffsetSec > 0 ? '+' : ''}${syncOffsetSec.toFixed(1)}с`;
-        })
-      );
-      controls.appendChild(
-        makeMiniBtn('+0.5с', () => {
-          syncOffsetSec = Number((syncOffsetSec + 0.5).toFixed(1));
-          offsetLabelEl.textContent = `Синхр: ${syncOffsetSec > 0 ? '+' : ''}${syncOffsetSec.toFixed(1)}с`;
-        })
-      );
-      controls.appendChild(
-        makeMiniBtn('Скинути', () => {
-          syncOffsetSec = 0;
-          offsetLabelEl.textContent = 'Синхр: 0.0с';
-        })
-      );
+      offsetMinusBtn = makeMiniBtn(t.minusHalf, () => {
+        syncOffsetSec = Number((syncOffsetSec - 0.5).toFixed(1));
+        offsetLabelEl.textContent = formatSyncOffset();
+      });
+      controls.appendChild(offsetMinusBtn);
 
-      nativeToggleBtn = makeMiniBtn('Текст YT', () => {
+      offsetPlusBtn = makeMiniBtn(t.plusHalf, () => {
+        syncOffsetSec = Number((syncOffsetSec + 0.5).toFixed(1));
+        offsetLabelEl.textContent = formatSyncOffset();
+      });
+      controls.appendChild(offsetPlusBtn);
+
+      offsetResetBtn = makeMiniBtn(t.reset, () => {
+        syncOffsetSec = 0;
+        offsetLabelEl.textContent = formatSyncOffset();
+      });
+      controls.appendChild(offsetResetBtn);
+
+      nativeToggleBtn = makeMiniBtn(t.nativeBtn, () => {
         showNativeFallback = true;
         syncInlineLyricsState();
       });
@@ -371,10 +396,11 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     inlineBodyEl.replaceChildren();
     lineElements = [];
     activeLineIndex = -1;
+    const t = getLyricsStrings();
 
     if (!currentTrack.title) {
       const empty = document.createElement('div');
-      empty.textContent = 'Увімкніть трек, щоб завантажити синхронізований текст.';
+      empty.textContent = t.empty;
       Object.assign(empty.style, { color: '#9a9a9a', fontSize: '14px', marginTop: '32px' });
       inlineBodyEl.appendChild(empty);
       return;
@@ -382,7 +408,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
 
     if (lyricsLoading) {
       const loading = document.createElement('div');
-      loading.textContent = 'Пошук синхронізованого тексту...';
+      loading.textContent = t.loading;
       Object.assign(loading.style, { color: '#bdbdbd', fontSize: '14px', marginTop: '32px' });
       inlineBodyEl.appendChild(loading);
       return;
@@ -414,7 +440,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
 
     if (lyricsData.plain) {
       const badge = document.createElement('div');
-      badge.textContent = 'Звичайний текст (без таймінгів)';
+      badge.textContent = t.plainBadge;
       Object.assign(badge.style, {
         fontSize: '12px',
         color: '#9e9e9e',
@@ -437,7 +463,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
     }
 
     const notFound = document.createElement('div');
-    notFound.textContent = 'Синхронізований текст для цього треку не знайдено у базі LRCLIB.';
+    notFound.textContent = t.notFound;
     Object.assign(notFound.style, {
       color: '#9a9a9a',
       fontSize: '14px',
@@ -594,7 +620,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
         if (!backBanner) {
           backBanner = document.createElement('button');
           backBanner.id = 'ytmc-back-to-synced';
-          backBanner.textContent = '← Повернутися до синхронізованого тексту';
+          backBanner.textContent = getLyricsStrings().backToSynced;
           Object.assign(backBanner.style, {
             margin: '8px 0',
             padding: '6px 12px',
@@ -666,12 +692,13 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
   function ensurePlayerBarButtons() {
     const rightControls = document.querySelector('ytmusic-player-bar .right-controls-buttons');
     if (!rightControls) return;
+    const t = getLyricsStrings();
 
     if (!document.getElementById('ytmc-lyrics-btn')) {
       const btn = document.createElement('button');
       btn.id = 'ytmc-lyrics-btn';
       btn.className = 'ytmc-bar-btn';
-      btn.title = 'Синхронізований текст пісні (Ctrl+L)';
+      btn.title = t.lyricsBtnTooltip;
       btn.appendChild(
         createSvgIcon([
           'M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
@@ -689,7 +716,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       const gearBtn = document.createElement('button');
       gearBtn.id = 'ytmc-settings-btn';
       gearBtn.className = 'ytmc-bar-btn';
-      gearBtn.title = 'Налаштування YT Music Client (Ctrl+,)';
+      gearBtn.title = t.settingsBtnTooltip;
       gearBtn.appendChild(
         createSvgIcon([
           'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z',
@@ -700,6 +727,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
         onOpenSettings();
       });
       rightControls.prepend(gearBtn);
+      settingsBtn = gearBtn;
     }
 
     if (lyricsToggleBtn) {
@@ -709,12 +737,29 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
   }
 
   function applySettings(newSettings) {
+    const prevLang = resolveLanguage(settings.language, systemLocale);
     settings = { ...settings, ...newSettings };
+    const nextLang = resolveLanguage(settings.language, systemLocale);
     ensureAmbientElements();
     applyAmbientColors();
     ensurePlayerBarButtons();
     if (!settings.lyricsEnabled) {
       forcedLyricsTab = false;
+    }
+    if (prevLang !== nextLang) {
+      const t = getLyricsStrings();
+      if (offsetLabelEl) offsetLabelEl.textContent = formatSyncOffset();
+      if (offsetMinusBtn) offsetMinusBtn.textContent = t.minusHalf;
+      if (offsetPlusBtn) offsetPlusBtn.textContent = t.plusHalf;
+      if (offsetResetBtn) offsetResetBtn.textContent = t.reset;
+      if (nativeToggleBtn) nativeToggleBtn.textContent = t.nativeBtn;
+      const backBanner = document.getElementById('ytmc-back-to-synced');
+      if (backBanner) backBanner.textContent = t.backToSynced;
+      if (lyricsToggleBtn) lyricsToggleBtn.title = t.lyricsBtnTooltip;
+      if (settingsBtn) settingsBtn.title = t.settingsBtnTooltip;
+      if (!currentTrack.title || lyricsLoading || !lyricsData.synced || lyricsData.synced.length === 0) {
+        renderLyricsContent();
+      }
     }
     syncInlineLyricsState();
   }
@@ -737,7 +782,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
 
     if (nextKey !== prevKey) {
       syncOffsetSec = 0;
-      if (offsetLabelEl) offsetLabelEl.textContent = 'Синхр: 0.0с';
+      if (offsetLabelEl) offsetLabelEl.textContent = formatSyncOffset();
       lyricsData = { found: false, synced: [], plain: '' };
       if (isLyricsViewVisible) {
         fetchLyricsForCurrentTrack(true);

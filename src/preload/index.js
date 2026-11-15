@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { ipcRenderer, webFrame } = require('electron');
 const { createEnhancementsController } = require('./enhancements');
+const { resolveLanguage, getTranslations, formatText } = require('../shared/i18n');
 
 const AUTH_HOSTS = new Set([
   'accounts.google.com',
@@ -28,15 +29,41 @@ function postToPage(type, payload) {
   window.postMessage({ source: 'ytmc-preload', type, payload }, '*');
 }
 
+const systemLocale = (() => {
+  try {
+    return ipcRenderer.sendSync('i18n:get-locale-sync') || navigator.language || '';
+  } catch {
+    return navigator.language || '';
+  }
+})();
+
 let currentSettings = null;
 let modalOverlay = null;
+let refreshOpenModal = null;
 let enhancements = null;
+
+function getAppStrings(cfg = currentSettings) {
+  const lang = resolveLanguage(cfg && cfg.language, systemLocale);
+  return getTranslations(lang);
+}
+
+function buildPageConfig(cfg) {
+  const t = getAppStrings(cfg);
+  return {
+    adBlockEnabled: cfg.adBlockEnabled,
+    sponsorBlockEnabled: cfg.sponsorBlockEnabled,
+    visualizerEnabled: cfg.visualizerEnabled,
+    sponsorBlockToast: t.sponsorBlock.skippedToast,
+    sponsorBlockCategories: t.sponsorBlock.categories,
+  };
+}
 
 function closeModal() {
   if (modalOverlay) {
     modalOverlay.remove();
     modalOverlay = null;
   }
+  refreshOpenModal = null;
 }
 
 function makeButton(label, bg = 'rgba(255,255,255,0.1)', color = '#f1f1f1') {
@@ -97,8 +124,9 @@ function createSettingsModal(initialTab = 'general') {
     marginBottom: '14px',
   });
 
+  const tInit = getAppStrings().settingsModal;
   const title = document.createElement('h2');
-  title.textContent = 'Налаштування YT Music Client';
+  title.textContent = tInit.title;
   Object.assign(title.style, {
     margin: '0',
     fontSize: '17px',
@@ -129,8 +157,8 @@ function createSettingsModal(initialTab = 'general') {
     marginBottom: '16px',
   });
 
-  const tabGeneralBtn = makeButton('Основні');
-  const tabAuthBtn = makeButton('Вхід в акаунт Google');
+  const tabGeneralBtn = makeButton(tInit.tabGeneral);
+  const tabAuthBtn = makeButton(tInit.tabAuth);
   tabsBar.appendChild(tabGeneralBtn);
   tabsBar.appendChild(tabAuthBtn);
   card.appendChild(tabsBar);
@@ -138,7 +166,10 @@ function createSettingsModal(initialTab = 'general') {
   const bodyContainer = document.createElement('div');
   card.appendChild(bodyContainer);
 
+  let activeTab = initialTab === 'auth' ? 'auth' : 'general';
+
   function setTabVisual(active) {
+    activeTab = active;
     tabGeneralBtn.style.background = active === 'general' ? '#ff0033' : 'rgba(255,255,255,0.08)';
     tabAuthBtn.style.background = active === 'auth' ? '#ff0033' : 'rgba(255,255,255,0.08)';
   }
@@ -146,18 +177,75 @@ function createSettingsModal(initialTab = 'general') {
   function renderGeneralTab() {
     setTabVisual('general');
     bodyContainer.replaceChildren();
+    const t = getAppStrings().settingsModal;
+
+    const langRow = document.createElement('div');
+    Object.assign(langRow.style, {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '12px',
+      padding: '8px 10px',
+      borderRadius: '8px',
+      background: 'rgba(255, 255, 255, 0.04)',
+      fontSize: '13.5px',
+      marginBottom: '9px',
+    });
+
+    const langLabel = document.createElement('span');
+    langLabel.textContent = t.languageLabel;
+
+    const langSelect = document.createElement('select');
+    Object.assign(langSelect.style, {
+      background: '#262626',
+      color: '#f1f1f1',
+      border: '1px solid rgba(255, 255, 255, 0.18)',
+      borderRadius: '6px',
+      padding: '5px 8px',
+      fontSize: '12.5px',
+      cursor: 'pointer',
+      outline: 'none',
+    });
+
+    const langOptions = [
+      { value: 'auto', label: t.langAuto },
+      { value: 'uk', label: t.langUk },
+      { value: 'en', label: t.langEn },
+    ];
+    for (const item of langOptions) {
+      const optEl = document.createElement('option');
+      optEl.value = item.value;
+      optEl.textContent = item.label;
+      langSelect.appendChild(optEl);
+    }
+    langSelect.value = (currentSettings && currentSettings.language) || 'auto';
+
+    langSelect.addEventListener('change', async () => {
+      currentSettings = await ipcRenderer.invoke('settings:update', {
+        language: langSelect.value,
+      });
+      postToPage('config', buildPageConfig(currentSettings));
+      if (enhancements) {
+        enhancements.applySettings(currentSettings);
+      }
+      refreshModalLocale();
+    });
+
+    langRow.appendChild(langLabel);
+    langRow.appendChild(langSelect);
+    bodyContainer.appendChild(langRow);
 
     const options = [
-      { key: 'adBlockEnabled', label: 'Блокування реклами та трекінгу (AdBlock)' },
-      { key: 'sponsorBlockEnabled', label: 'SponsorBlock (пропуск пауз, інтро, аутро)' },
-      { key: 'ambientThemeEnabled', label: 'Адаптивний фон під обкладинку треку' },
-      { key: 'visualizerEnabled', label: 'Аудіовізуалізатор у панелі плеєра' },
-      { key: 'lyricsEnabled', label: 'Синхронізовані тексти пісень (Ctrl+L)' },
-      { key: 'globalMediaKeys', label: 'Глобальні медіа-клавіші (Play/Pause, Next, Prev)' },
-      { key: 'extraHotkeys', label: 'Додаткові клавіші (Ctrl+Alt+Space / ← / →)' },
-      { key: 'minimizeToTray', label: 'Згортати в системний трей при закритті' },
-      { key: 'alwaysOnTop', label: 'Вікно завжди зверху' },
-      { key: 'autoLaunch', label: 'Автозапуск разом із Windows' },
+      { key: 'adBlockEnabled', label: t.adBlock },
+      { key: 'sponsorBlockEnabled', label: t.sponsorBlock },
+      { key: 'ambientThemeEnabled', label: t.ambientTheme },
+      { key: 'visualizerEnabled', label: t.visualizer },
+      { key: 'lyricsEnabled', label: t.lyrics },
+      { key: 'globalMediaKeys', label: t.globalMediaKeys },
+      { key: 'extraHotkeys', label: t.extraHotkeys },
+      { key: 'minimizeToTray', label: t.minimizeToTray },
+      { key: 'alwaysOnTop', label: t.alwaysOnTop },
+      { key: 'autoLaunch', label: t.autoLaunch },
     ];
 
     const list = document.createElement('div');
@@ -198,11 +286,7 @@ function createSettingsModal(initialTab = 'general') {
         currentSettings = await ipcRenderer.invoke('settings:update', {
           [opt.key]: checkbox.checked,
         });
-        postToPage('config', {
-          adBlockEnabled: currentSettings.adBlockEnabled,
-          sponsorBlockEnabled: currentSettings.sponsorBlockEnabled,
-          visualizerEnabled: currentSettings.visualizerEnabled,
-        });
+        postToPage('config', buildPageConfig(currentSettings));
         if (enhancements) {
           enhancements.applySettings(currentSettings);
         }
@@ -226,13 +310,14 @@ function createSettingsModal(initialTab = 'general') {
     });
     const adsCount = (currentSettings && currentSettings.stats && currentSettings.stats.blockedAds) || 0;
     const sbCount = (currentSettings && currentSettings.stats && currentSettings.stats.skippedSegments) || 0;
-    statsBox.textContent = `Заблоковано реклами: ${adsCount}   •   Пропущено SponsorBlock: ${sbCount}`;
+    statsBox.textContent = formatText(t.statsSummary, { ads: adsCount, segments: sbCount });
     bodyContainer.appendChild(statsBox);
   }
 
   function renderAuthTab() {
     setTabVisual('auth');
     bodyContainer.replaceChildren();
+    const t = getAppStrings().settingsModal;
 
     const modeSection = document.createElement('div');
     Object.assign(modeSection.style, {
@@ -243,15 +328,15 @@ function createSettingsModal(initialTab = 'general') {
     });
 
     const modeTitle = document.createElement('div');
-    modeTitle.textContent = '1. Режим сумісності входу Google (якщо блокує звичайний вхід):';
+    modeTitle.textContent = t.authModeTitle;
     Object.assign(modeTitle.style, { fontSize: '13px', fontWeight: '600', marginBottom: '8px' });
     modeSection.appendChild(modeTitle);
 
     const modeSelectRow = document.createElement('div');
     Object.assign(modeSelectRow.style, { display: 'flex', gap: '8px', flexWrap: 'wrap' });
 
-    const btnChrome = makeButton('Chrome (стандартний)');
-    const btnFirefox = makeButton('Firefox (резервний)');
+    const btnChrome = makeButton(t.authChrome);
+    const btnFirefox = makeButton(t.authFirefox);
 
     function refreshModeButtons(mode) {
       btnChrome.style.background = mode === 'chrome' ? '#ff0033' : 'rgba(255,255,255,0.08)';
@@ -268,7 +353,7 @@ function createSettingsModal(initialTab = 'general') {
       refreshModeButtons('firefox');
     });
 
-    const btnResetAuth = makeButton('Очистити кеш входу й оновити');
+    const btnResetAuth = makeButton(t.authResetBtn);
     btnResetAuth.addEventListener('click', async () => {
       await ipcRenderer.invoke('auth:clear-cookies');
       closeModal();
@@ -289,15 +374,12 @@ function createSettingsModal(initialTab = 'general') {
     });
 
     const cookieTitle = document.createElement('div');
-    cookieTitle.textContent = '2. Гарантований вхід через cookies зі звичайного браузера:';
+    cookieTitle.textContent = t.cookieTitle;
     Object.assign(cookieTitle.style, { fontSize: '13px', fontWeight: '600', marginBottom: '6px' });
     cookieSection.appendChild(cookieTitle);
 
     const steps = document.createElement('div');
-    steps.textContent =
-      'Якщо Google все одно пише «додаток може бути небезпечним»: 1) Відкрийте music.youtube.com у Chrome/Edge і увійдіть там. ' +
-      '2) Натисніть F12 → Network (Мережа) → оновіть сторінку (F5) → оберіть запит music.youtube.com → скопіюйте заголовок запиту Cookie: (Request Headers). ' +
-      '3) Вставте його нижче і натисніть «Імпортувати та увійти».';
+    steps.textContent = t.cookieSteps;
     Object.assign(steps.style, {
       fontSize: '12px',
       lineHeight: '1.45',
@@ -307,7 +389,7 @@ function createSettingsModal(initialTab = 'general') {
     cookieSection.appendChild(steps);
 
     const textarea = document.createElement('textarea');
-    textarea.placeholder = 'Вставте сюди рядок Cookie (наприклад: HSID=...; SSID=...; SAPISID=...;)';
+    textarea.placeholder = t.cookiePlaceholder;
     Object.assign(textarea.style, {
       width: '100%',
       boxSizing: 'border-box',
@@ -336,19 +418,19 @@ function createSettingsModal(initialTab = 'general') {
     const actionRow = document.createElement('div');
     Object.assign(actionRow.style, { display: 'flex', gap: '8px', flexWrap: 'wrap' });
 
-    const openBrowserBtn = makeButton('Відкрити music.youtube.com у браузері');
+    const openBrowserBtn = makeButton(t.openBrowserBtn);
     openBrowserBtn.addEventListener('click', () => {
       ipcRenderer.send('auth:open-external-ytm');
     });
 
-    const importBtn = makeButton('Імпортувати та увійти', '#ff0033', '#ffffff');
+    const importBtn = makeButton(t.importBtn, '#ff0033', '#ffffff');
     importBtn.addEventListener('click', async () => {
       statusLine.style.display = 'none';
       const result = await ipcRenderer.invoke('auth:import-cookies', textarea.value);
       if (result && result.ok) {
         closeModal();
       } else {
-        statusLine.textContent = (result && result.error) || 'Не вдалося імпортувати cookies.';
+        statusLine.textContent = (result && result.error) || t.importErrorFallback;
         statusLine.style.display = 'block';
       }
     });
@@ -369,7 +451,7 @@ function createSettingsModal(initialTab = 'general') {
   }
 
   const hint = document.createElement('div');
-  hint.textContent = 'Підказка: натисніть Ctrl+, у будь-який момент, щоб відкрити або закрити це вікно.';
+  hint.textContent = tInit.hint;
   Object.assign(hint.style, {
     marginTop: '12px',
     fontSize: '11.5px',
@@ -377,6 +459,20 @@ function createSettingsModal(initialTab = 'general') {
     textAlign: 'center',
   });
   card.appendChild(hint);
+
+  function refreshModalLocale() {
+    const t = getAppStrings().settingsModal;
+    title.textContent = t.title;
+    tabGeneralBtn.textContent = t.tabGeneral;
+    tabAuthBtn.textContent = t.tabAuth;
+    hint.textContent = t.hint;
+    if (activeTab === 'auth') {
+      renderAuthTab();
+    } else {
+      renderGeneralTab();
+    }
+  }
+  refreshOpenModal = refreshModalLocale;
 
   overlay.appendChild(card);
   overlay.addEventListener('click', (e) => {
@@ -431,22 +527,17 @@ if (isMusicHost) {
 
   ipcRenderer.invoke('settings:get').then((cfg) => {
     currentSettings = cfg;
-    postToPage('config', {
-      adBlockEnabled: cfg.adBlockEnabled,
-      sponsorBlockEnabled: cfg.sponsorBlockEnabled,
-      visualizerEnabled: cfg.visualizerEnabled,
-    });
+    postToPage('config', buildPageConfig(cfg));
     enhancements.applySettings(cfg);
   });
 
   ipcRenderer.on('settings:updated', (_event, cfg) => {
     currentSettings = cfg;
-    postToPage('config', {
-      adBlockEnabled: cfg.adBlockEnabled,
-      sponsorBlockEnabled: cfg.sponsorBlockEnabled,
-      visualizerEnabled: cfg.visualizerEnabled,
-    });
+    postToPage('config', buildPageConfig(cfg));
     enhancements.applySettings(cfg);
+    if (refreshOpenModal) {
+      refreshOpenModal();
+    }
   });
 
   ipcRenderer.on('ui:open-settings', (_event, tab) => {

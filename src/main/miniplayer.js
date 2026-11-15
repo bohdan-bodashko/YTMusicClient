@@ -21,6 +21,7 @@ class MiniPlayerManager {
       primary: [255, 45, 85],
       secondary: [90, 60, 200],
     };
+    this.latestStrings = null;
   }
 
   _ensureWindow() {
@@ -131,6 +132,7 @@ class MiniPlayerManager {
     this.win.webContents.send('miniplayer:state', {
       ...this.latestState,
       isPinned: this.isPinned,
+      strings: this.latestStrings,
     });
     this.win.webContents.send('miniplayer:theme', this.latestTheme);
   }
@@ -141,8 +143,14 @@ class MiniPlayerManager {
       this.win.webContents.send('miniplayer:state', {
         ...this.latestState,
         isPinned: this.isPinned,
+        strings: this.latestStrings,
       });
     }
+  }
+
+  updateLocale(strings) {
+    this.latestStrings = strings || null;
+    this._pushFullSync();
   }
 
   updateTime(currentTime) {

@@ -333,7 +333,7 @@
         </button>
       </div>
 
-      <div class="volume-wrap" title="Гучність">
+      <div id="volumeWrap" class="volume-wrap" title="Volume">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
           <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
         </svg>
@@ -354,10 +354,30 @@
     const playIcon = document.getElementById('playIcon');
     const pauseIcon = document.getElementById('pauseIcon');
     const pinBtn = document.getElementById('pinBtn');
+    const openMainBtn = document.getElementById('openMainBtn');
+    const closeBtn = document.getElementById('closeBtn');
+    const prevBtn = document.getElementById('prevBtn');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const volumeWrap = document.getElementById('volumeWrap');
     const volumeRange = document.getElementById('volumeRange');
 
     let durationSec = 0;
     let isAdjustingVolume = false;
+    let currentStrings = null;
+
+    function applyStrings(strings) {
+      if (!strings) return;
+      currentStrings = strings;
+      if (strings.title) document.title = strings.title;
+      if (strings.pin) pinBtn.title = strings.pin;
+      if (strings.openMain) openMainBtn.title = strings.openMain;
+      if (strings.close) closeBtn.title = strings.close;
+      if (strings.prev) prevBtn.title = strings.prev;
+      if (strings.playPause) playPauseBtn.title = strings.playPause;
+      if (strings.next) nextBtn.title = strings.next;
+      if (strings.volume) volumeWrap.title = strings.volume;
+    }
 
     function fmtTime(sec) {
       if (!Number.isFinite(sec) || sec <= 0) return '0:00';
@@ -376,7 +396,11 @@
 
     window.miniPlayerAPI.onStateUpdate((state) => {
       if (!state) return;
-      trackTitle.textContent = state.title || 'Нічого не відтворюється';
+      if (state.strings) {
+        applyStrings(state.strings);
+      }
+      const fallbackTitle = (currentStrings && currentStrings.nothingPlaying) || 'Nothing playing';
+      trackTitle.textContent = state.title || fallbackTitle;
       trackArtist.textContent = state.artist || 'YouTube Music';
       durationSec = state.duration || 0;
       updateProgress(state.currentTime || 0);

@@ -13,14 +13,15 @@
     secondary: [120, 70, 220],
   };
 
-  const CATEGORY_LABELS = {
-    music_offtopic: 'не-музична частина',
-    sponsor: 'спонсор',
-    selfpromo: 'самопромо',
-    interaction: 'інтерактив/прохання',
-    intro: 'інтро',
-    outro: 'аутро',
+  let CATEGORY_LABELS = {
+    music_offtopic: 'non-music section',
+    sponsor: 'sponsor',
+    selfpromo: 'self-promotion',
+    interaction: 'interaction reminder',
+    intro: 'intro',
+    outro: 'outro',
   };
+  let sponsorBlockToastTemplate = 'SponsorBlock: skipped ({category})';
 
   let currentVideoId = null;
   let activeSegments = [];
@@ -224,7 +225,7 @@
         video.currentTime = seg.end;
         postToPreload('sponsorblock-skipped');
         const label = CATEGORY_LABELS[seg.category] || seg.category;
-        showToast(`SponsorBlock: пропущено (${label})`);
+        showToast(sponsorBlockToastTemplate.replace('{category}', label));
         break;
       }
     }
@@ -581,6 +582,12 @@
           if (video) setupVisualizerAudio(video);
           startVisualizerLoop();
         }
+      }
+      if (typeof payload.sponsorBlockToast === 'string') {
+        sponsorBlockToastTemplate = payload.sponsorBlockToast;
+      }
+      if (payload.sponsorBlockCategories && typeof payload.sponsorBlockCategories === 'object') {
+        CATEGORY_LABELS = { ...CATEGORY_LABELS, ...payload.sponsorBlockCategories };
       }
       syncAdBlockStyle();
       if (!prevSb && config.sponsorBlockEnabled && currentVideoId) {

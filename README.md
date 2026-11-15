@@ -14,6 +14,7 @@ A desktop client for **YouTube Music** built with **Electron**, designed as a li
 - **Audio visualizer** — frequency spectrum bar along the top edge of the player bar powered by the Web Audio API (`captureStream` + `AnalyserNode`) without interfering with audio output.
 - **Windows System Tray & Taskbar** — left-click the tray icon to toggle the compact Mini Player flyout (with album art, progress bar, volume, and pin-on-top), right-click for the context menu (open/hide main window, playback, and quick settings), plus thumbnail toolbar buttons (`Previous`, `Play / Pause`, `Next`) on the Windows taskbar.
 - **Global media keys** — system-wide playback control even when minimized.
+- **Bilingual interface (English / Ukrainian)** — automatic system language detection on startup, with manual switching available in Settings (`Ctrl+,`) and the tray menu.
 - **Google Sign-In compatibility** — proper `Sec-CH-UA` headers and `navigator.userAgentData` properties, compatibility mode switcher (`Chrome` / `Firefox`), and fallback browser cookie import.
 
 ---

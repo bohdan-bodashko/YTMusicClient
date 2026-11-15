@@ -16,6 +16,7 @@ const { LyricsAndArtworkService } = require('./lyrics');
 const { ShortcutManager } = require('./shortcuts');
 const { TrayManager } = require('./tray');
 const { MiniPlayerManager } = require('./miniplayer');
+const { resolveLanguage, getTranslations } = require('../shared/i18n');
 const {
   AUTH_HOSTS,
   getChromeMajor,
@@ -59,6 +60,12 @@ if (!gotTheLock) {
   });
 }
 
+function getT() {
+  const langSetting = settings ? settings.get('language') : 'auto';
+  const lang = resolveLanguage(langSetting, app.getLocale());
+  return getTranslations(lang);
+}
+
 function sendPlayerCommand(command) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('player:command', command);
@@ -68,22 +75,23 @@ function sendPlayerCommand(command) {
 function updateThumbarButtons(isPlaying) {
   if (!mainWindow || mainWindow.isDestroyed() || process.platform !== 'win32') return;
   const assetsDir = path.join(__dirname, '..', '..', 'assets');
+  const t = getT().thumbar;
   try {
     mainWindow.setThumbarButtons([
       {
-        tooltip: 'Попередній трек',
+        tooltip: t.prev,
         icon: nativeImage.createFromPath(path.join(assetsDir, 'thumb-prev.png')),
         click: () => sendPlayerCommand('previous'),
       },
       {
-        tooltip: isPlaying ? 'Пауза' : 'Відтворити',
+        tooltip: isPlaying ? t.pause : t.play,
         icon: nativeImage.createFromPath(
           path.join(assetsDir, isPlaying ? 'thumb-pause.png' : 'thumb-play.png')
         ),
         click: () => sendPlayerCommand('toggle'),
       },
       {
-        tooltip: 'Наступний трек',
+        tooltip: t.next,
         icon: nativeImage.createFromPath(path.join(assetsDir, 'thumb-next.png')),
         click: () => sendPlayerCommand('next'),
       },
@@ -214,6 +222,10 @@ function createMainWindow() {
 }
 
 function setupIpc() {
+  ipcMain.on('i18n:get-locale-sync', (event) => {
+    event.returnValue = app.getLocale();
+  });
+
   ipcMain.on('auth:get-env', (event) => {
     event.returnValue = {
       mode: settings.get('authUserAgentMode') || 'chrome',
@@ -237,7 +249,11 @@ function setupIpc() {
 
   ipcMain.handle('auth:import-cookies', async (_event, rawCookieHeader) => {
     try {
-      const res = await importBrowserCookies(session.defaultSession, rawCookieHeader);
+      const res = await importBrowserCookies(
+        session.defaultSession,
+        rawCookieHeader,
+        getT().authErrors.noCookiesFound
+      );
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.loadURL(YTMUSIC_URL);
       }
@@ -402,6 +418,7 @@ app.whenReady().then(() => {
   setupIpc();
   createMainWindow();
   trayManager.init();
+  miniPlayer.updateLocale(getT().miniPlayer);
   shortcuts.apply(settings);
 
   if (process.argv.includes('--smoke-test')) {
@@ -435,6 +452,12 @@ app.whenReady().then(() => {
     }
     if (key === 'autoLaunch' || key === '*') {
       syncAutoLaunch(all.autoLaunch);
+    }
+    if (key === 'language' || key === '*') {
+      updateThumbarButtons(currentIsPlaying);
+      if (miniPlayer) {
+        miniPlayer.updateLocale(getT().miniPlayer);
+      }
     }
     if (trayManager) {
       trayManager.rebuildMenu();
