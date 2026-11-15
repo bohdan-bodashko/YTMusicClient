@@ -4,3 +4,13 @@ out/
 *.log
 *.lnk
 .DS_Store
+__pycache__/
+*.py[cod]
+*.pfx
+*.p12
+*.pem
+*.key
+*.crt
+.env
+.env.*
+electron-builder.env

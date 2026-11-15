@@ -50,14 +50,20 @@ const TRANSLATIONS = {
     },
     settingsModal: {
       title: 'Налаштування YT Music Client',
+      closeTooltip: 'Закрити (Esc)',
       tabGeneral: 'Основні',
       tabAuth: 'Вхід в акаунт Google',
+      sectionInterface: 'Інтерфейс',
+      sectionPlayback: 'Блокування та пропуск',
+      sectionAppearance: 'Візуал і тексти',
+      sectionSystem: 'Вікно та гарячі клавіші',
       languageLabel: 'Мова інтерфейсу',
       langAuto: 'Авто (система)',
       langUk: 'Українська',
       langEn: 'English',
       adBlock: 'Блокування реклами та трекінгу (AdBlock)',
       sponsorBlock: 'SponsorBlock (пропуск пауз, інтро, аутро)',
+      sponsorCategoriesLabel: 'Категорії для автоматичного пропуску:',
       ambientTheme: 'Адаптивний фон під обкладинку треку',
       visualizer: 'Аудіовізуалізатор у панелі плеєра',
       lyrics: 'Синхронізовані тексти пісень (Ctrl+L)',
@@ -66,12 +72,19 @@ const TRANSLATIONS = {
       minimizeToTray: 'Згортати в системний трей при закритті',
       alwaysOnTop: 'Вікно завжди зверху',
       autoLaunch: 'Автозапуск разом із Windows',
+      statsTitle: 'Статистика захисту',
+      statsAdsLabel: 'Заблоковано реклами',
+      statsSegmentsLabel: 'Пропущено сегментів',
+      statsResetBtn: 'Скинути',
+      statsResetDone: 'Статистику скинуто',
       statsSummary: 'Заблоковано реклами: {ads}   •   Пропущено SponsorBlock: {segments}',
       hint: 'Підказка: натисніть Ctrl+, у будь-який момент, щоб відкрити або закрити це вікно.',
       authModeTitle: '1. Режим сумісності входу Google (якщо блокує звичайний вхід):',
       authChrome: 'Chrome (стандартний)',
       authFirefox: 'Firefox (резервний)',
+      authModeActiveBadge: 'Активний',
       authResetBtn: 'Очистити кеш входу й оновити',
+      authResetSuccess: 'Кеш входу очищено, сторінку оновлено.',
       cookieTitle: '2. Гарантований вхід через cookies зі звичайного браузера:',
       cookieSteps:
         'Якщо Google все одно пише «додаток може бути небезпечним»: 1) Відкрийте music.youtube.com у Chrome/Edge і увійдіть там. ' +
@@ -80,6 +93,7 @@ const TRANSLATIONS = {
       cookiePlaceholder: 'Вставте сюди рядок Cookie (наприклад: HSID=...; SSID=...; SAPISID=...;)',
       openBrowserBtn: 'Відкрити music.youtube.com у браузері',
       importBtn: 'Імпортувати та увійти',
+      importSuccess: 'Cookies успішно імпортовано! Перезавантаження...',
       importErrorFallback: 'Не вдалося імпортувати cookies.',
     },
     lyrics: {
@@ -91,9 +105,15 @@ const TRANSLATIONS = {
       backToSynced: '← Повернутися до синхронізованого тексту',
       empty: 'Увімкніть трек, щоб завантажити синхронізований текст.',
       loading: 'Пошук синхронізованого тексту...',
+      syncedBadge: 'Синхронізований текст • Натисніть рядок для перемотки',
       plainBadge: 'Звичайний текст (без таймінгів)',
       notFound: 'Синхронізований текст для цього треку не знайдено у базі LRCLIB.',
+      copyBtn: 'Копіювати',
+      copiedBtn: 'Скопійовано!',
+      retryBtn: 'Повторити пошук',
+      resumeSyncBtn: 'Повернутися до активного рядка',
       lyricsBtnTooltip: 'Синхронізований текст пісні (Ctrl+L)',
+      miniPlayerBtnTooltip: 'Міні-плеєр',
       settingsBtnTooltip: 'Налаштування YT Music Client (Ctrl+,)',
     },
     sponsorBlock: {
@@ -108,18 +128,40 @@ const TRANSLATIONS = {
       },
     },
     miniPlayer: {
+      lang: 'uk',
       title: 'YouTube Music — Міні-плеєр',
       pin: 'Закріпити поверх вікон',
+      unpin: 'Відкріпити поверх вікон',
       openMain: 'Відкрити головне вікно',
       close: 'Сховати міні-плеєр',
       nothingPlaying: 'Нічого не відтворюється',
       prev: 'Попередній трек',
       playPause: 'Відтворити / Пауза',
+      play: 'Відтворити',
+      pause: 'Пауза',
       next: 'Наступний трек',
       volume: 'Гучність',
+      mute: 'Вимкнути звук',
+      unmute: 'Увімкнути звук',
+    },
+    offline: {
+      pageTitle: 'Немає з’єднання — YouTube Music',
+      heading: 'Не вдалося завантажити YouTube Music',
+      subtitle: 'Перевірте підключення до інтернету, VPN або проксі й спробуйте підключитися знову.',
+      errorCodeLabel: 'Код помилки:',
+      urlLabel: 'Адреса:',
+      retryBtn: 'Спробувати ще раз',
+      retryingBtn: 'Підключення...',
+      hint: 'Підказка: натисніть Enter або R для швидкої повторної спроби.',
     },
     authErrors: {
       noCookiesFound: 'Не знайдено жодного коректного cookie у вставленому тексті.',
+    },
+    externalLink: {
+      title: 'Відкрити зовнішнє посилання?',
+      message: 'YouTube Music Client намагається відкрити зовнішню адресу у браузері:',
+      openBtn: 'Відкрити',
+      cancelBtn: 'Скасувати',
     },
   },
   en: {
@@ -173,14 +215,20 @@ const TRANSLATIONS = {
     },
     settingsModal: {
       title: 'YT Music Client Settings',
+      closeTooltip: 'Close (Esc)',
       tabGeneral: 'General',
       tabAuth: 'Google Sign-In',
+      sectionInterface: 'Interface',
+      sectionPlayback: 'Blocking & Skipping',
+      sectionAppearance: 'Visuals & Lyrics',
+      sectionSystem: 'Window & Shortcuts',
       languageLabel: 'Interface language',
       langAuto: 'Auto (System)',
       langUk: 'Українська',
       langEn: 'English',
       adBlock: 'Ad & tracker blocking (AdBlock)',
       sponsorBlock: 'SponsorBlock (skip non-music, intro, outro)',
+      sponsorCategoriesLabel: 'Categories to skip automatically:',
       ambientTheme: 'Adaptive album-art background',
       visualizer: 'Audio visualizer in player bar',
       lyrics: 'Synced lyrics (Ctrl+L)',
@@ -189,12 +237,19 @@ const TRANSLATIONS = {
       minimizeToTray: 'Minimize to system tray on close',
       alwaysOnTop: 'Always on top',
       autoLaunch: 'Launch automatically with Windows',
+      statsTitle: 'Protection Statistics',
+      statsAdsLabel: 'Blocked Ads',
+      statsSegmentsLabel: 'Skipped Segments',
+      statsResetBtn: 'Reset',
+      statsResetDone: 'Statistics reset',
       statsSummary: 'Blocked ads: {ads}   •   SponsorBlock skips: {segments}',
       hint: 'Tip: press Ctrl+, anytime to open or close this window.',
       authModeTitle: '1. Google Sign-In compatibility mode (if default sign-in is blocked):',
       authChrome: 'Chrome (standard)',
       authFirefox: 'Firefox (fallback)',
+      authModeActiveBadge: 'Active',
       authResetBtn: 'Clear sign-in cache & reload',
+      authResetSuccess: 'Sign-in cache cleared and page reloaded.',
       cookieTitle: '2. Guaranteed sign-in via regular browser cookies:',
       cookieSteps:
         'If Google still says "this browser or app may not be secure": 1) Open music.youtube.com in Chrome/Edge and sign in there. ' +
@@ -203,6 +258,7 @@ const TRANSLATIONS = {
       cookiePlaceholder: 'Paste Cookie header string here (e.g. HSID=...; SSID=...; SAPISID=...;)',
       openBrowserBtn: 'Open music.youtube.com in browser',
       importBtn: 'Import & Sign In',
+      importSuccess: 'Cookies imported! Reloading...',
       importErrorFallback: 'Failed to import cookies.',
     },
     lyrics: {
@@ -214,9 +270,15 @@ const TRANSLATIONS = {
       backToSynced: '← Back to synced lyrics',
       empty: 'Play a track to load synced lyrics.',
       loading: 'Searching for synced lyrics...',
+      syncedBadge: 'Synced lyrics • Click any line to seek',
       plainBadge: 'Plain lyrics (unsynced)',
       notFound: 'No synced lyrics found for this track on LRCLIB.',
+      copyBtn: 'Copy',
+      copiedBtn: 'Copied!',
+      retryBtn: 'Retry search',
+      resumeSyncBtn: 'Resume auto-scroll',
       lyricsBtnTooltip: 'Synced Lyrics (Ctrl+L)',
+      miniPlayerBtnTooltip: 'Mini Player',
       settingsBtnTooltip: 'YT Music Client Settings (Ctrl+,)',
     },
     sponsorBlock: {
@@ -231,18 +293,40 @@ const TRANSLATIONS = {
       },
     },
     miniPlayer: {
+      lang: 'en',
       title: 'YouTube Music — Mini Player',
       pin: 'Pin on top',
+      unpin: 'Unpin',
       openMain: 'Open main window',
       close: 'Hide mini player',
       nothingPlaying: 'Nothing playing',
       prev: 'Previous track',
       playPause: 'Play / Pause',
+      play: 'Play',
+      pause: 'Pause',
       next: 'Next track',
       volume: 'Volume',
+      mute: 'Mute',
+      unmute: 'Unmute',
+    },
+    offline: {
+      pageTitle: 'Connection Error — YouTube Music',
+      heading: 'Unable to load YouTube Music',
+      subtitle: 'Please check your internet connection, VPN, or proxy settings and try again.',
+      errorCodeLabel: 'Error code:',
+      urlLabel: 'URL:',
+      retryBtn: 'Retry Connection',
+      retryingBtn: 'Connecting...',
+      hint: 'Tip: press Enter or R to retry quickly.',
     },
     authErrors: {
       noCookiesFound: 'No valid cookies found in the pasted text.',
+    },
+    externalLink: {
+      title: 'Open external link?',
+      message: 'YouTube Music Client wants to open an external URL in your browser:',
+      openBtn: 'Open',
+      cancelBtn: 'Cancel',
     },
   },
 };
@@ -259,15 +343,15 @@ function resolveLanguage(settingLang = 'auto', systemLocale = '') {
 }
 
 function getTranslations(lang) {
-  return TRANSLATIONS[lang] || TRANSLATIONS.en;
+  return Object.hasOwn(TRANSLATIONS, lang) ? TRANSLATIONS[lang] : TRANSLATIONS.en;
 }
 
 function formatText(template, vars = {}) {
-  let out = String(template || '');
-  for (const [key, value] of Object.entries(vars)) {
-    out = out.replaceAll(`{${key}}`, String(value));
-  }
-  return out;
+  const out = String(template || '');
+  const safeVars = vars && typeof vars === 'object' ? vars : {};
+  return out.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) =>
+    Object.hasOwn(safeVars, key) ? String(safeVars[key] ?? '') : match
+  );
 }
 
 module.exports = {
