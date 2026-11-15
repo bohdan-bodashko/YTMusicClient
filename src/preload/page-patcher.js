@@ -256,7 +256,9 @@
     const video = document.querySelector('video');
     const isPlaying = Boolean(video && !video.paused && !video.ended);
     const duration = video && Number.isFinite(video.duration) ? video.duration : 0;
-    return { isPlaying, title, artist, videoId: currentVideoId, artworkUrl, duration };
+    const volume = video && typeof video.volume === 'number' ? video.volume : 1;
+    const muted = Boolean(video && video.muted);
+    return { isPlaying, title, artist, videoId: currentVideoId, artworkUrl, duration, volume, muted };
   }
 
   function reportPlayerState() {
@@ -500,6 +502,7 @@
     });
     video.addEventListener('pause', reportPlayerState);
     video.addEventListener('ended', reportPlayerState);
+    video.addEventListener('volumechange', reportPlayerState);
     video.addEventListener('loadedmetadata', () => {
       refreshTrackAndSegments();
       checkAndSkipDomAd();
@@ -598,6 +601,21 @@
         video.currentTime = Math.max(0, payload.time);
         postToPreload('player-time', { currentTime: video.currentTime });
       }
+    } else if (type === 'player-volume' && payload && Number.isFinite(payload.volume)) {
+      const clamped = Math.min(1, Math.max(0, payload.volume));
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.setVolume === 'function') {
+        player.setVolume(Math.round(clamped * 100));
+        if (clamped === 0 && typeof player.mute === 'function') player.mute();
+        else if (clamped > 0 && typeof player.unMute === 'function') player.unMute();
+      } else {
+        const video = document.querySelector('video');
+        if (video) {
+          video.volume = clamped;
+          video.muted = clamped === 0;
+        }
+      }
+      reportPlayerState();
     } else if (type === 'toast' && payload && payload.text) {
       showToast(payload.text);
     }

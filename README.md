@@ -12,7 +12,7 @@ A desktop client for **YouTube Music** built with **Electron**, designed as a li
 - **Adaptive album-art background** — analyzes the color palette of the current track's cover art and smoothly tints the interface, player bar, and audio visualizer.
 - **Synced lyrics** — enhances the standard Lyrics tab with time-synced LRC lyrics from `lrclib.net`, featuring active line highlighting, auto-scroll, click-to-seek, timing offset controls (`-0.5s` / `+0.5s`), and a toggle to switch back to native YouTube Music lyrics.
 - **Audio visualizer** — frequency spectrum bar along the top edge of the player bar powered by the Web Audio API (`captureStream` + `AnalyserNode`) without interfering with audio output.
-- **Windows System Tray & Taskbar** — minimize to tray on close, current track display, quick settings toggles, launch with Windows, and thumbnail toolbar buttons (`Previous`, `Play / Pause`, `Next`) on the Windows taskbar.
+- **Windows System Tray & Taskbar** — left-click the tray icon to toggle the compact Mini Player flyout (with album art, progress bar, volume, and pin-on-top), right-click for the context menu (open/hide main window, playback, and quick settings), plus thumbnail toolbar buttons (`Previous`, `Play / Pause`, `Next`) on the Windows taskbar.
 - **Global media keys** — system-wide playback control even when minimized.
 - **Google Sign-In compatibility** — proper `Sec-CH-UA` headers and `navigator.userAgentData` properties, compatibility mode switcher (`Chrome` / `Firefox`), and fallback browser cookie import.
 
@@ -94,15 +94,19 @@ YTMusicClient/
 │   │   ├── auth.js           # Auth headers, cache reset, and cookie import
 │   │   ├── index.js          # Main process, window management, IPC, ThumbarButtons
 │   │   ├── lyrics.js         # LRCLIB client, LRC parser, and artwork fetcher
+│   │   ├── miniplayer.js     # Tray flyout Mini Player window manager
 │   │   ├── settings.js       # Settings persistence and sync
 │   │   ├── shortcuts.js      # Global media shortcuts
 │   │   ├── sponsorblock.js   # SponsorBlock API client
 │   │   └── tray.js           # System tray and context menu
-│   └── preload/
-│       ├── auth-patcher.js   # Aligns navigator / userAgentData in MAIN world
-│       ├── enhancements.js   # Adaptive background, lyrics tab, player bar controls
-│       ├── index.js          # Isolated preload bridge, settings modal, shortcuts
-│       └── page-patcher.js   # Player ad filtering, SponsorBlock, audio visualizer
+│   ├── preload/
+│   │   ├── auth-patcher.js   # Aligns navigator / userAgentData in MAIN world
+│   │   ├── enhancements.js   # Adaptive background, lyrics tab, player bar controls
+│   │   ├── index.js          # Isolated preload bridge, settings modal, shortcuts
+│   │   ├── miniplayer.js     # Isolated preload bridge for the Mini Player
+│   │   └── page-patcher.js   # Player ad filtering, SponsorBlock, audio visualizer
+│   └── renderer/
+│       └── miniplayer.html   # Tray Mini Player UI
 ├── package.json
 └── README.md
 ```

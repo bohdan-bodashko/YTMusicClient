@@ -464,6 +464,14 @@ if (isMusicHost) {
     postToPage('player-command', { command });
   });
 
+  ipcRenderer.on('player:seek', (_event, time) => {
+    postToPage('player-seek', { time });
+  });
+
+  ipcRenderer.on('player:set-volume', (_event, volume) => {
+    postToPage('player-volume', { volume });
+  });
+
   window.addEventListener('message', async (event) => {
     if (event.source !== window || !event.data || event.data.source !== 'ytmc-page') return;
     const { type, payload } = event.data;
@@ -476,6 +484,7 @@ if (isMusicHost) {
       ipcRenderer.send('player:state-changed', payload);
       if (enhancements) enhancements.handlePlayerState(payload);
     } else if (type === 'player-time' && payload) {
+      ipcRenderer.send('player:time-changed', payload.currentTime || 0);
       if (enhancements) enhancements.updateLyricsPlaybackTime(payload.currentTime || 0);
     } else if (type === 'sponsorblock-request' && payload && payload.videoId) {
       const segments = await ipcRenderer.invoke('sponsorblock:fetch', payload.videoId);

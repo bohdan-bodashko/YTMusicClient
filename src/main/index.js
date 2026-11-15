@@ -15,6 +15,7 @@ const { SponsorBlockService } = require('./sponsorblock');
 const { LyricsAndArtworkService } = require('./lyrics');
 const { ShortcutManager } = require('./shortcuts');
 const { TrayManager } = require('./tray');
+const { MiniPlayerManager } = require('./miniplayer');
 const {
   AUTH_HOSTS,
   getChromeMajor,
@@ -36,6 +37,7 @@ let sponsorBlock = null;
 let lyricsService = null;
 let shortcuts = null;
 let trayManager = null;
+let miniPlayer = null;
 let isQuitting = false;
 let currentIsPlaying = false;
 
@@ -274,12 +276,22 @@ function setupIpc() {
     return lyricsService.fetchArtworkDataUrl(artworkUrl);
   });
 
-  ipcMain.on('player:state-changed', (_event, state) => {
+  ipcMain.on('player:state-changed', async (_event, state) => {
     if (!state || typeof state !== 'object') return;
     currentIsPlaying = Boolean(state.isPlaying);
     updateThumbarButtons(currentIsPlaying);
     if (trayManager) {
       trayManager.updatePlayerState(state);
+    }
+    if (miniPlayer) {
+      let artworkDataUrl = '';
+      if (state.artworkUrl) {
+        artworkDataUrl = (await lyricsService.fetchArtworkDataUrl(state.artworkUrl)) || '';
+      }
+      miniPlayer.updateState({
+        ...state,
+        artworkDataUrl,
+      });
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
       const title = state.title
@@ -287,6 +299,49 @@ function setupIpc() {
         : 'YouTube Music';
       mainWindow.setTitle(title);
     }
+  });
+
+  ipcMain.on('player:time-changed', (_event, currentTime) => {
+    if (miniPlayer && Number.isFinite(currentTime)) {
+      miniPlayer.updateTime(currentTime);
+    }
+  });
+
+  ipcMain.on('player:theme-changed', (_event, theme) => {
+    if (miniPlayer) {
+      miniPlayer.updateTheme(theme);
+    }
+  });
+
+  ipcMain.on('miniplayer:command', (_event, command) => {
+    sendPlayerCommand(command);
+  });
+
+  ipcMain.on('miniplayer:seek', (_event, time) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('player:seek', time);
+    }
+  });
+
+  ipcMain.on('miniplayer:volume', (_event, volume) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('player:set-volume', volume);
+    }
+  });
+
+  ipcMain.handle('miniplayer:toggle-pin', () => {
+    return miniPlayer ? miniPlayer.togglePin() : false;
+  });
+
+  ipcMain.on('miniplayer:open-main', () => {
+    toggleWindowVisibility(true);
+    if (miniPlayer && !miniPlayer.isPinned) {
+      miniPlayer.hide();
+    }
+  });
+
+  ipcMain.on('miniplayer:close', () => {
+    if (miniPlayer) miniPlayer.hide();
   });
 }
 
@@ -302,9 +357,13 @@ app.whenReady().then(() => {
   sponsorBlock = new SponsorBlockService();
   lyricsService = new LyricsAndArtworkService();
   shortcuts = new ShortcutManager(sendPlayerCommand);
+  miniPlayer = new MiniPlayerManager();
   trayManager = new TrayManager({
     settings,
     onToggleWindow: toggleWindowVisibility,
+    onToggleMiniPlayer: (bounds) => {
+      if (miniPlayer) miniPlayer.toggle(bounds);
+    },
     onPlayerCommand: sendPlayerCommand,
     onToggleLyrics: () => {
       toggleWindowVisibility(true);
@@ -395,6 +454,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   if (shortcuts) shortcuts.unregisterAll();
   if (trayManager) trayManager.destroy();
+  if (miniPlayer) miniPlayer.destroy();
 });
 
 app.on('window-all-closed', () => {

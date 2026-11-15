@@ -2,9 +2,10 @@ const path = require('path');
 const { Tray, Menu, nativeImage, dialog } = require('electron');
 
 class TrayManager {
-  constructor({ settings, onToggleWindow, onPlayerCommand, onToggleLyrics, onOpenAuthSettings, onClearGoogleAuth, onReload, onQuit }) {
+  constructor({ settings, onToggleWindow, onToggleMiniPlayer, onPlayerCommand, onToggleLyrics, onOpenAuthSettings, onClearGoogleAuth, onReload, onQuit }) {
     this.settings = settings;
     this.onToggleWindow = onToggleWindow;
+    this.onToggleMiniPlayer = onToggleMiniPlayer;
     this.onPlayerCommand = onPlayerCommand;
     this.onToggleLyrics = onToggleLyrics;
     this.onOpenAuthSettings = onOpenAuthSettings;
@@ -24,8 +25,13 @@ class TrayManager {
     const icon = nativeImage.createFromPath(iconPath);
     this.tray = new Tray(icon);
     this.tray.setToolTip('YouTube Music');
-    this.tray.on('click', () => this.onToggleWindow());
-    this.tray.on('double-click', () => this.onToggleWindow(true));
+    this.tray.on('click', () => {
+      if (this.onToggleMiniPlayer) {
+        this.onToggleMiniPlayer(this.tray.getBounds());
+      } else {
+        this.onToggleWindow();
+      }
+    });
     this.rebuildMenu();
   }
 
@@ -54,6 +60,14 @@ class TrayManager {
       {
         label: truncatedTrack,
         enabled: false,
+      },
+      {
+        label: 'Відкрити / Сховати головне вікно',
+        click: () => this.onToggleWindow(),
+      },
+      {
+        label: 'Міні-плеєр',
+        click: () => this.onToggleMiniPlayer && this.onToggleMiniPlayer(this.tray.getBounds()),
       },
       { type: 'separator' },
       {

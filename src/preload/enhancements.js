@@ -241,6 +241,7 @@ function createEnhancementsController({ onOpenSettings, postToPage }) {
       primary: currentPalette.primary,
       secondary: currentPalette.secondary,
     });
+    ipcRenderer.send('player:theme-changed', currentPalette);
   }
 
   async function updateArtworkColors(artworkUrl) {
